@@ -1056,7 +1056,7 @@
             <ol>
               <li>ใน Telegram ค้นหา <b>@BotFather</b> → กด Start → พิมพ์ <code>/newbot</code> → ตั้งชื่อบอท → ตั้งชื่อผู้ใช้ที่ลงท้ายด้วย <code>bot</code> → คัดลอก <b>Token</b> ที่ได้มาวางในช่องด้านล่าง</li>
               <li>สร้าง <b>ช่อง (New Channel)</b> แบบส่วนตัว (Private) เช่น "รูปลงเวลา"</li>
-              <li>เข้าช่อง → ตั้งค่า → ผู้ดูแล (Administrators) → เพิ่มผู้ดูแล → ค้นหาชื่อบอท → เปิดสิทธิ์ <b>โพสต์ข้อความ</b></li>
+              <li>เข้าช่อง → ตั้งค่า → ผู้ดูแล (Administrators) → เพิ่มผู้ดูแล → ค้นหาชื่อบอท → เปิดสิทธิ์ <b>โพสต์ข้อความ</b> และ <b>ลบข้อความ (Delete messages)</b></li>
               <li>โพสต์ข้อความอะไรก็ได้ 1 ครั้งในช่อง แล้วกด <b>ค้นหากลุ่ม/ช่อง</b> ด้านล่าง → เลือกช่อง</li>
               <li>กด <b>ส่งข้อความทดสอบ</b> → เลือกว่าจะส่งรูปเมื่อไร → กด <b>บันทึก</b></li>
               <li>ส่งลิงก์เชิญของช่องให้พนักงาน พนักงานจะดูรูปได้อย่างเดียว</li>
@@ -1075,6 +1075,11 @@
             <button class="btn ghost" type="button" id="tgTest">ส่งข้อความทดสอบ</button>
             <button class="btn primary" type="submit">บันทึก</button>
             <button class="btn ghost" type="button" id="tgClear">ลบการเชื่อมต่อ</button>
+          </div>
+          <div class="tg-wipe">
+            <b>ล้างข้อความทั้งหมดในกลุ่ม</b>
+            <p class="sub">ให้บอทลบทุกข้อความและรูปในกลุ่ม/ช่องที่ตั้งไว้ เหมือนไม่เคยส่งอะไรเลย · บอทต้องเป็นผู้ดูแลที่เปิดสิทธิ์ <b>Delete messages</b></p>
+            <button class="btn danger" type="button" id="tgWipe">ล้างข้อความทั้งหมด…</button>
           </div>
         </form>
         <form class="card reset-card" id="rsf">
@@ -1261,6 +1266,69 @@
         tgShow(await api('/api/admin/telegram', { method: 'PUT', body }));
         toast('บันทึกการตั้งค่า Telegram แล้ว');
       });
+    };
+    // ล้างข้อความทั้งหมดในกลุ่ม Telegram (ระบบทำเป็นรอบ ๆ จนเสร็จ)
+    document.getElementById('tgWipe').onclick = () => {
+      openModal(`
+        <h2 style="margin:0 40px 10px 0">ล้างข้อความทั้งหมดในกลุ่ม Telegram</h2>
+        <div class="del-warn">
+          <b>⚠ บอทจะลบทุกข้อความในกลุ่ม/ช่องนี้ถาวร กู้คืนไม่ได้</b>
+          <ul>
+            <li>รูปสแกนเข้า-ออกงานทั้งหมดที่ระบบเคยส่ง</li>
+            <li>ข้อความทดสอบ และข้อความของคนอื่นในกลุ่ม (ถ้ามี)</li>
+          </ul>
+          <div class="sub">ข้อมูลในระบบลงเวลาไม่ถูกลบ (ประวัติและรูปยังอยู่ครบในหน้านี้) · ข้อความระบบของ Telegram เช่น "สร้างกลุ่ม" อาจลบไม่ได้ · ถ้ากลุ่มมีข้อความเยอะ อาจใช้เวลาหลายนาที อย่าปิดหน้านี้จนกว่าจะเสร็จ</div>
+        </div>
+        <form id="wpf" class="del-form">
+          <label class="field"><span>พิมพ์ <b>ลบทั้งหมด</b> เพื่อยืนยัน</span><input name="confirm" autocomplete="off"></label>
+          <div id="wpProg" class="wipe-prog" hidden><div class="bar"><span></span></div><div class="sub" id="wpTxt"></div></div>
+          <div class="row"><button type="submit" class="btn danger" id="wpBtn" disabled>ล้างข้อความทั้งหมด</button><button type="button" class="btn ghost" id="wpCancel">ยกเลิก</button></div>
+        </form>`);
+      const f = document.getElementById('wpf');
+      const btn = document.getElementById('wpBtn');
+      let running = false;
+      let stop = false;
+      f.confirm.oninput = () => { btn.disabled = running || f.confirm.value.trim() !== 'ลบทั้งหมด'; };
+      document.getElementById('wpCancel').onclick = () => { if (running) { stop = true; return; } closeModal(); };
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        if (btn.disabled) return;
+        running = true;
+        btn.disabled = true;
+        btn.textContent = 'กำลังลบ…';
+        f.confirm.disabled = true;
+        document.getElementById('wpCancel').textContent = 'หยุด';
+        const prog = document.getElementById('wpProg');
+        const bar = prog.querySelector('.bar span');
+        const txt = document.getElementById('wpTxt');
+        prog.hidden = false;
+        txt.textContent = 'กำลังเริ่ม…';
+        let restart = true;
+        try {
+          for (;;) {
+            const r = await api('/api/admin/telegram/wipe', { method: 'POST', body: { confirm: 'ลบทั้งหมด', restart } });
+            restart = false;
+            const pct = r.total ? Math.round(((r.total - r.remaining) / r.total) * 100) : 100;
+            bar.style.width = pct + '%';
+            if (r.done) {
+              closeModal();
+              toast(r.failed ? `ล้างข้อความเสร็จแล้ว (มี ${r.failed} รายการที่ Telegram ไม่ยอมให้ลบ)` : 'ล้างข้อความในกลุ่ม Telegram เสร็จแล้ว');
+              api('/api/admin/telegram').then(tgShow).catch(() => {});
+              return;
+            }
+            if (stop) { closeModal(); toast('หยุดแล้ว กด "ล้างข้อความทั้งหมด" อีกครั้งเพื่อเริ่มใหม่', true); return; }
+            txt.textContent = r.wait ? `Telegram ให้รอ ${r.wait} วินาที แล้วจะลบต่อเอง… (${pct}%)` : `กำลังลบ… ${pct}%`;
+            if (r.wait) await new Promise((res) => setTimeout(res, r.wait * 1000 + 300));
+          }
+        } catch (err) {
+          toast(err.message, true);
+          running = false;
+          btn.textContent = 'ลองอีกครั้ง';
+          f.confirm.disabled = false;
+          btn.disabled = false;
+          document.getElementById('wpCancel').textContent = 'ปิด';
+        }
+      };
     };
     document.getElementById('tgClear').onclick = (e) => {
       if (!confirm('ลบ Bot Token และปิดการส่งรูปไป Telegram?')) return;

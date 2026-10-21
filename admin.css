@@ -259,3 +259,7 @@ button.stat { font: inherit; color: inherit; text-align: left; cursor: pointer; 
 .del-warn ul { margin: 8px 0; padding-left: 20px; display: grid; gap: 4px; }
 .del-ack { display: flex; gap: 10px; align-items: flex-start; font-weight: 600; cursor: pointer; }
 .del-ack input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+.tg-wipe { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; gap: 6px; justify-items: start; }
+.tg-wipe p { margin: 0 0 4px; }
+.wipe-prog .bar { height: 10px; border-radius: 999px; background: var(--surface-2, #eef1f3); overflow: hidden; margin-bottom: 6px; }
+.wipe-prog .bar span { display: block; height: 100%; width: 0; background: var(--bad, #d93025); transition: width .3s; }
