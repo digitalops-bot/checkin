@@ -118,11 +118,13 @@
           <div class="brand"><img src="icon.svg" alt=""><div><b>ระบบลงเวลา</b><small>ผู้ดูแล · พนักงานนอก</small></div></div>
           ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
           <div class="spacer"></div>
+          <button class="nav-btn" id="reloadBtn">${icon('refresh')}<span>รีเฟรช</span></button>
           <button class="nav-btn" id="logout">${icon('out')}<span>ออกจากระบบ</span></button>
         </aside>
         <main class="content protect" id="content"></main>
       </div>`;
     root.querySelectorAll('[data-page]').forEach((b) => (b.onclick = () => go(b.dataset.page)));
+    document.getElementById('reloadBtn').onclick = () => location.reload(); // อยู่หน้าเดิม ไม่ต้องล็อกอินใหม่
     document.getElementById('logout').onclick = async () => { await api('/api/admin/logout', { body: {} }).catch(() => {}); Backend.adminToken.set(''); boot(); };
     go(page);
   }

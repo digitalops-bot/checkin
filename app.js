@@ -5,6 +5,11 @@
   const tabbar = document.querySelector('.tabbar');
   const tabs = [...tabbar.querySelectorAll('button')];
   const userBox = document.getElementById('user');
+  // ⟳ รีเฟรชระบบ: โหลดหน้าใหม่ (ได้เวอร์ชันล่าสุด และสิทธิ์ที่เพิ่งเปิดในการตั้งค่า) — ไม่ต้องล็อกอินใหม่
+  document.getElementById('refreshBtn').onclick = () => {
+    document.getElementById('refreshBtn').classList.add('spin');
+    location.reload();
+  };
 
   const OT_TYPES = [
     { v: '1.5', title: 'OT 1.5', desc: 'โอทีหลังเลิกงาน วันทำงานปกติ' },
@@ -447,13 +452,41 @@
 
   // ---------- Check-in / Check-out ----------
   let liveTimer = null;
+  // หน้าลงเวลา: สแกนครั้งแรก = เข้างาน, ครั้งที่สอง = ออกงาน (ระบบเลือกให้ สลับเองได้ถ้าจำเป็น)
+  let scanOverride = null;
+  let scanStatus = null;
+  async function renderScan(override) {
+    scanOverride = override || null;
+    if (!scanStatus || !override) {
+      view.innerHTML = '<h1 class="screen-title"><span class="dot"></span>ลงเวลา</h1><div class="card empty">กำลังตรวจสอบว่าครั้งนี้เป็นเข้างานหรือออกงาน…</div>';
+      try { scanStatus = await api('/api/me/scan-status'); } catch { scanStatus = { next: 'in', last: null, reason: 'offline' }; }
+      if (current !== 'scan') return;
+    }
+    renderAttendance(scanOverride || scanStatus.next);
+  }
+  function scanBanner(mode) {
+    const st = scanStatus || {};
+    const last = st.last;
+    const when = last ? `${last.work_date !== today() ? `${thDate(last.work_date)} ` : ''}${last.time} น.` : '';
+    let text;
+    if (scanOverride) text = mode === 'in' ? 'คุณเลือกสแกน <b>เข้างาน</b> เอง' : 'คุณเลือกสแกน <b>ออกงาน</b> เอง';
+    else if (mode === 'out' && st.reason === 'recent_checkout') text = `ออกงานแล้วเมื่อ <b>${esc(when)}</b> · สแกนอีกครั้งจะ<b>อัปเดตเวลาออกงาน</b>`;
+    else if (mode === 'out') text = `เข้างานแล้วเมื่อ <b>${esc(when)}</b> · ครั้งนี้คือ <b>สแกนออกงาน</b>`;
+    else if (st.reason === 'stale_checkin') text = `มีการเข้างานเมื่อ ${esc(when)} ที่ไม่ได้สแกนออก · ครั้งนี้นับเป็น<b>เข้างานใหม่</b>`;
+    else text = 'ยังไม่ได้สแกนเข้างาน · ครั้งนี้คือ <b>สแกนเข้างาน</b>';
+    const other = mode === 'in' ? 'out' : 'in';
+    return `<div class="scan-banner ${mode}">${text}
+      <button class="linkbtn" id="swapMode" type="button">${scanOverride ? 'กลับไปใช้ที่ระบบเลือกให้' : `ต้องการสแกน${other === 'in' ? 'เข้างาน' : 'ออกงาน'}แทน?`}</button></div>`;
+  }
+
   function renderAttendance(mode) {
     const isIn = mode === 'in';
     const label = isIn ? 'เช็คอิน' : 'เช็คเอ้าท์';
     view.innerHTML = `
-      <h1 class="screen-title ${mode}"><span class="dot"></span>${label} · ${isIn ? 'เข้างาน' : 'เลิกงาน'}</h1>
+      <h1 class="screen-title ${mode}"><span class="dot"></span>ลงเวลา · ${isIn ? 'เข้างาน' : 'ออกงาน'}</h1>
       <div class="card">
         ${whoChip()}
+        ${scanBanner(mode)}
         <div class="live-clock"><small>เวลาจริงจากระบบ (ตั้งเองไม่ได้)</small><b id="lc">--:--:--</b><span id="ld"></span></div>
         <div id="permBox"></div>
         <div class="info-row" id="gpsRow"><span class="ico">📍</span><div><b>พิกัด GPS</b><div id="gpsText" class="muted">กำลังหาตำแหน่ง…</div></div></div>
@@ -466,6 +499,12 @@
         <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
       </div>`;
 
+    document.getElementById('swapMode').onclick = () => {
+      if (scanOverride) return renderScan();
+      const other = mode === 'in' ? 'out' : 'in';
+      if (!confirm(`ยืนยันสแกน${other === 'in' ? 'เข้างาน' : 'ออกงาน'}แทน?\nใช้เฉพาะกรณีที่ระบบเลือกไม่ตรง เช่น ลืมสแกนออกงานเมื่อวาน`)) return;
+      renderScan(other);
+    };
     const lc = document.getElementById('lc');
     const ld = document.getElementById('ld');
     const drawClock = () => { const d = serverNow(); lc.textContent = fmtClock(d); ld.textContent = fmtDay(d); };
@@ -537,7 +576,7 @@
     try {
       const st = await navigator.permissions.query({ name });
       // ผู้ใช้เปลี่ยนสิทธิ์ในตั้งค่า → อัปเดตกล่องสถานะทันที
-      if (!permWatch[name]) { permWatch[name] = true; st.onchange = () => { if (current === 'in' || current === 'out') renderAttendance(current); }; }
+      if (!permWatch[name]) { permWatch[name] = true; st.onchange = () => { if (current === 'scan') renderScan(scanOverride); }; }
       return st.state;
     } catch { return 'unknown'; } // เบราว์เซอร์บางรุ่น (เช่น Safari รุ่นเก่า) ไม่บอกสถานะ
   }
@@ -556,7 +595,8 @@
       box.innerHTML = `<div class="perm-box denied">
         <b>⛔ ไม่ได้อนุญาต${denied.join(' และ ')}</b>
         <div>ลงเวลาไม่ได้จนกว่าจะเปิดสิทธิ์ เพราะระบบต้องใช้รูปและพิกัดตอนสแกน</div>
-        <div class="perm-actions"><button class="btn danger sm" id="permHow">วิธีเปิดสิทธิ์</button><button class="btn ghost sm" id="permRetry">ลองอีกครั้ง</button></div>
+        <div class="perm-note">เมื่อกด "ไม่อนุญาต" ไปแล้ว มือถือจะไม่ถามซ้ำ ต้องเปิดสิทธิ์ในการตั้งค่า แล้วกด "ตรวจสอบสิทธิ์อีกครั้ง" หรือ ⟳ รีเฟรช</div>
+        <div class="perm-actions"><button class="btn danger sm" id="permHow">วิธีเปิดสิทธิ์</button><button class="btn ghost sm" id="permRetry">ตรวจสอบสิทธิ์อีกครั้ง</button></div>
       </div>`;
     } else if (geo === 'prompt' || cam === 'prompt') {
       box.innerHTML = `<div class="perm-box ask">
@@ -570,9 +610,34 @@
       box.innerHTML = '<div class="perm-link"><button class="linkbtn" id="permHow">ไม่อยากให้ถามสิทธิ์บ่อย? ตั้งให้อนุญาตตลอด</button></div>';
     }
     box.querySelector('#permHow')?.addEventListener('click', openPermGuide);
-    box.querySelector('#permRetry')?.addEventListener('click', () => renderAttendance(current));
+    box.querySelector('#permRetry')?.addEventListener('click', recheckPerms);
     box.querySelector('#permAsk')?.addEventListener('click', requestPerms);
   }
+  // ตรวจสิทธิ์ซ้ำโดยไม่โหลดหน้าใหม่: ลองขอพิกัด/กล้องอีกครั้ง ถ้ายังถูกบล็อก → บอกวิธีเปิดในการตั้งค่า
+  async function recheckPerms() {
+    const btn = document.getElementById('permRetry');
+    if (btn) busy(btn, true, 'กำลังตรวจสอบ…');
+    const geoOk = await new Promise((res) => {
+      if (!('geolocation' in navigator)) return res(false);
+      navigator.geolocation.getCurrentPosition(() => res(true), (e) => res(e.code !== 1), { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+    });
+    let camOk = true;
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      st.getTracks().forEach((t) => t.stop());
+    } catch (e) { camOk = !(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')); }
+    if (current !== 'scan') return;
+    if (geoOk && camOk) {
+      toast('เปิดสิทธิ์แล้ว สแกนได้เลย');
+      renderScan(scanOverride);
+      return;
+    }
+    if (btn) busy(btn, false);
+    const miss = [!geoOk && 'ตำแหน่ง', !camOk && 'กล้อง'].filter(Boolean).join(' และ ');
+    toast(`ยังไม่ได้อนุญาต${miss} — ต้องเปิดในการตั้งค่ามือถือตามขั้นตอนนี้`, true);
+    openPermGuide();
+  }
+
   async function requestPerms() {
     const btn = document.getElementById('permAsk');
     if (btn) busy(btn, true, 'กำลังขอสิทธิ์…');
@@ -581,7 +646,7 @@
       const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       st.getTracks().forEach((t) => t.stop());
     } catch { /* ผู้ใช้ไม่อนุญาต → กล่องจะเป็นสีแดง */ }
-    if (current === 'in' || current === 'out') renderAttendance(current);
+    if (current === 'scan') renderScan(scanOverride);
   }
   function openPermGuide() {
     const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -788,12 +853,14 @@
         <p class="hint">ต้องกดส่งภายใน 5 นาที ไม่เช่นนั้นต้องสแกนใหม่</p>
       </div>`;
     document.getElementById('shot').src = s.photo;
-    document.getElementById('again').onclick = () => go(s.mode);
+    document.getElementById('again').onclick = () => go('scan');
     const btn = document.getElementById('send');
     btn.onclick = async () => {
       busy(btn, true, 'กำลังส่ง…');
       try {
         const saved = await api('/api/attendance', s.payload);
+        scanStatus = null;
+        scanOverride = null;
         const rows = [
           ['ชื่อ', me.name], ['วันที่ทำงาน', thDate(saved.work_date)], ['เวลา', `${fmtClock(new Date(saved.captured_at))} น.`],
           ['สถานที่', saved.location], ['รหัสตรวจสอบ', saved.verify_code],
@@ -814,7 +881,7 @@
       } catch (err) {
         toast(err.message, true);
         busy(btn, false);
-        if (/สแกนใหม่|หมดเวลา/.test(err.message)) setTimeout(() => go(s.mode), 1500);
+        if (/สแกนใหม่|หมดเวลา/.test(err.message)) setTimeout(() => go('scan'), 1500);
       }
     };
     window.scrollTo(0, 0);
@@ -1168,7 +1235,7 @@
     clearInterval(liveTimer);
     closeSheet();
     tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-    if (tab === 'in' || tab === 'out') renderAttendance(tab);
+    if (tab === 'scan') renderScan();
     else if (tab === 'ot') renderOT();
     else if (tab === 'cal') renderCalendar();
     else renderHistory();
@@ -1176,7 +1243,8 @@
     window.scrollTo(0, 0);
   }
   tabs.forEach((b) => (b.onclick = () => { if (b.dataset.tab === 'ot') otDate = null; go(b.dataset.tab); }));
-  const fromHash = () => { const t = location.hash.slice(1); return ['in', 'out', 'ot', 'cal', 'history'].includes(t) ? t : 'in'; };
+  // ลิงก์เดิม #in / #out ยังใช้ได้ → ไปหน้าลงเวลา
+  const fromHash = () => { const t = location.hash.slice(1); return ['scan', 'ot', 'cal', 'history'].includes(t) ? t : 'scan'; };
   window.addEventListener('hashchange', () => { if (token && me && fromHash() !== current) go(fromHash()); });
 
   // ส่งสัญญาณ "ออนไลน์" ให้ผู้ดูแลเห็น: ทุก 5 นาทีขณะเปิดแอปอยู่ และทุกครั้งที่กลับมาที่แอป

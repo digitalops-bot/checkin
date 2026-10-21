@@ -3,7 +3,7 @@
   "short_name": "ลงเวลา",
   "description": "เช็คอิน เช็คเอ้าท์ และขอ OT สำหรับพนักงานนอก",
   "lang": "th",
-  "start_url": "./#in",
+  "start_url": "./#scan",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
