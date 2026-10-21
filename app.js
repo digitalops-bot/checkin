@@ -491,7 +491,8 @@
         <div id="permBox"></div>
         <div class="info-row" id="gpsRow"><span class="ico">📍</span><div><b>พิกัด GPS</b><div id="gpsText" class="muted">กำลังหาตำแหน่ง…</div></div></div>
         <div class="info-row" id="siteRow"><span class="ico">🏢</span><div><b>สถานที่ทำงาน</b><div id="siteText" class="muted">รอพิกัด GPS…</div></div></div>
-        <label class="field" id="siteChoose" hidden><span>เลือกสถานที่ทำงาน</span><select name="site"><option value="">— เลือกสถานที่ —</option></select></label>
+        <label class="field" id="siteChoose"><span>พิมพ์สถานที่ทำงานครั้งนี้ <b class="bad">*</b></span><input name="site" maxlength="100" autocomplete="off" list="siteList" placeholder="พิมพ์ชื่อสถานที่ เช่น ไซต์งานบางนา" enterkeyhint="done"><datalist id="siteList"></datalist></label>
+        <div class="site-quick" id="siteQuick" hidden></div>
         <button class="btn primary big scan-btn" id="scanBtn" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>
           สแกนใบหน้า${isIn ? 'เข้างาน' : 'ออกงาน'}</button>
@@ -516,7 +517,17 @@
     const gpsText = document.getElementById('gpsText');
     const siteText = document.getElementById('siteText');
     const siteChoose = document.getElementById('siteChoose');
-    const siteSelect = siteChoose.querySelector('select');
+    const siteInput = siteChoose.querySelector('input');
+    const siteList = document.getElementById('siteList');
+    // ไม่ใส่ค่าเดิมให้อัตโนมัติ (เข้างานกับออกงานอาจคนละที่) แต่มีปุ่มให้แตะใช้ที่เดิมได้
+    const lastLoc = store.get('last_location', '');
+    const siteQuick = document.getElementById('siteQuick');
+    if (lastLoc) {
+      siteQuick.hidden = false;
+      siteQuick.innerHTML = `<button type="button" class="chip-btn">ใช้ที่เดิม: <b>${esc(lastLoc)}</b></button>`;
+      siteQuick.firstElementChild.onclick = () => { siteInput.value = lastLoc; siteInput.classList.remove('input-bad'); };
+    }
+    siteInput.addEventListener('input', () => siteInput.classList.remove('input-bad'));
 
     if (!window.isSecureContext) {
       gpsText.innerHTML = '<span class="bad">ต้องเปิดแอปผ่าน https:// เท่านั้น จึงจะใช้กล้องและ GPS ได้</span>';
@@ -528,17 +539,13 @@
       if (!lastFix) return;
       gpsText.innerHTML = `${lastFix.lat.toFixed(6)}, ${lastFix.lng.toFixed(6)} <span class="${lastFix.accuracy > 150 ? 'warn' : 'ok'}">(±${Math.round(lastFix.accuracy)} ม.)</span>`;
       const m = matchSite(lastFix.lat, lastFix.lng);
+      siteList.innerHTML = sites.map((s) => `<option value="${esc(s.name)}">`).join('');
       if (m.configured) {
-        siteChoose.hidden = true;
         siteText.innerHTML = m.inside
           ? `<b class="ok">${esc(m.site.name)}</b> <span class="muted">· อยู่ในพื้นที่ (${fmtDist(m.distance)})</span>`
           : `<b class="warn">${esc(m.site.name)}</b> <span class="warn">· นอกพื้นที่ ห่าง ${fmtDist(m.distance)}</span><div class="sub">ยังลงเวลาได้ แต่ระบบจะแจ้งผู้ดูแลให้ตรวจสอบ</div>`;
       } else {
-        siteText.textContent = 'ผู้ดูแลยังไม่ได้ตั้งพิกัดสถานที่ กรุณาเลือกสถานที่';
-        if (siteChoose.hidden) {
-          siteSelect.innerHTML = '<option value="">— เลือกสถานที่ —</option>' + sites.map((s) => `<option${s.name === store.get('last_location', '') ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
-          siteChoose.hidden = false;
-        }
+        siteText.textContent = 'พิมพ์ชื่อสถานที่ทำงานด้านล่าง';
       }
       scanBtn.disabled = permBlocked;
     };
@@ -561,10 +568,9 @@
     loadFaceDetector().catch(() => {}); // โหลดล่วงหน้า
 
     scanBtn.onclick = () => {
-      const m = lastFix && matchSite(lastFix.lat, lastFix.lng);
-      const choice = m && !m.configured ? siteSelect.value || '' : '';
-      if (m && !m.configured && sites.length && !choice) return toast('กรุณาเลือกสถานที่ทำงาน', true);
-      if (choice) store.set('last_location', choice);
+      const choice = siteInput.value.replace(/s+/g, ' ').trim();
+      if (choice.length < 2) { siteInput.classList.add('input-bad'); siteInput.focus(); return toast('กรุณาพิมพ์สถานที่ทำงานก่อนสแกน', true); }
+      store.set('last_location', choice);
       runScanner(mode, choice);
     };
   }
@@ -803,7 +809,7 @@
         close();
 
         const m = matchSite(fix.lat, fix.lng);
-        const placeName = m.configured ? m.site.name : locationChoice || 'ไม่ระบุสถานที่';
+        const placeName = locationChoice || (m.configured ? m.site.name : 'ไม่ระบุสถานที่');
         const photo = stampPhoto(c, [
           { text: `${label} · ${me.name}`, bold: true },
           { text: `รหัสพนักงาน ${me.emp_code}` },

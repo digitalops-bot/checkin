@@ -320,3 +320,8 @@ body.sheet-open { overflow: hidden; }
 .scan-banner.in { background: var(--in-soft); color: var(--in); }
 .scan-banner.out { background: var(--out-soft); color: var(--out); }
 .scan-banner .linkbtn { display: block; margin: 6px 0 0; padding: 0; font-size: 13.5px; color: inherit; opacity: .85; }
+
+/* สถานที่ทำงาน: ปุ่มใช้ที่เดิม */
+.site-quick { margin: -4px 0 12px; }
+.chip-btn { border: 1px solid var(--border); background: var(--surface-2); color: inherit; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.field input.input-bad { border-color: #d93025; box-shadow: 0 0 0 3px rgba(217,48,37,.15); }
