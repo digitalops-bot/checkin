@@ -449,7 +449,10 @@
     const el = document.getElementById('map');
     el.innerHTML = '';
     mapObj = L.map(el, { zoomControl: true }).setView([13.75, 100.5], 6);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(mapObj);
+    // OpenStreetMap บล็อกคำขอที่ไม่บอกต้นทาง (หน้านี้ตั้ง referrer = same-origin) → ขอแบบ CORS และส่งเฉพาะชื่อเว็บ
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap', crossOrigin: 'anonymous', referrerPolicy: 'strict-origin-when-cross-origin',
+    }).addTo(mapObj);
     const layer = L.layerGroup().addTo(mapObj);
     let recs = [];
 
