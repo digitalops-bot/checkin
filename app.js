@@ -1,0 +1,983 @@
+// แอปพนักงาน: สมัคร / เข้าสู่ระบบ / เช็คอิน / เช็คเอ้าท์ / ขอ OT / ประวัติ
+(() => {
+  const view = document.getElementById('view');
+  const toastEl = document.getElementById('toast');
+  const tabbar = document.querySelector('.tabbar');
+  const tabs = [...tabbar.querySelectorAll('button')];
+  const userBox = document.getElementById('user');
+
+  const OT_TYPES = [
+    { v: '1.5', title: 'OT 1.5', desc: 'โอทีหลังเลิกงาน วันทำงานปกติ' },
+    { v: '2', title: 'OT 2', desc: 'โอทีวันหยุด' },
+    { v: '3', title: 'OT 3', desc: 'โอทีหลังเลิกงานของวันหยุด' },
+  ];
+  const STATUS_TH = { pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ' };
+  const TITLES = ['นาย', 'นาง', 'นางสาว'];
+  const ICON_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+  const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  const ICON_EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+  // ---------- storage (ล็อกอินค้างไว้ในเครื่องถาวร) ----------
+  const store = {
+    get(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+    set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore */ } },
+    del(key) { try { localStorage.removeItem(key); } catch { /* ignore */ } },
+  };
+  let token = store.get('emp_token', null);
+  let me = store.get('emp_profile', null);
+  if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+
+  // ---------- utils ----------
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pad = (n) => String(n).padStart(2, '0');
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const nowTime = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const thDate = (iso) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  const diffHours = (a, b) => {
+    if (!a || !b) return '';
+    const [ah, am] = a.split(':').map(Number);
+    const [bh, bm] = b.split(':').map(Number);
+    let m = bh * 60 + bm - (ah * 60 + am);
+    if (m <= 0) m += 1440;
+    return Math.round((m / 60) * 100) / 100;
+  };
+
+  let toastTimer;
+  function toast(msg, isError = false) {
+    toastEl.textContent = msg;
+    toastEl.className = 'show' + (isError ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toastEl.className = ''), 3500);
+  }
+
+  async function api(url, body) {
+    const { status, data } = await Backend.request(body ? 'POST' : 'GET', url, { body, token });
+    if ((status === 401 || status === 403) && token && !url.startsWith('/api/auth/')) {
+      signOut(data.error || 'กรุณาเข้าสู่ระบบอีกครั้ง');
+      throw new Error(data.error || 'กรุณาเข้าสู่ระบบ');
+    }
+    if (status < 200 || status >= 300) throw Object.assign(new Error(data.error || 'ส่งข้อมูลไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต'), { status });
+    return data;
+  }
+
+  // ---------- validation (ตรงกับฝั่งเซิร์ฟเวอร์) ----------
+  const RULES = {
+    emp_code: (v) => (!v ? 'กรุณากรอกรหัสพนักงาน' : /^[A-Z]+[0-9]+$/.test(v) ? '' : 'ต้องเป็นอักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข เช่น EMP001'),
+    first_name: (v) => (!v ? 'กรุณากรอกชื่อ' : /^[ก-๎]+$/.test(v) ? '' : 'ภาษาไทยเท่านั้น'),
+    last_name: (v) => (!v ? 'กรุณากรอกนามสกุล' : /^[ก-๎]+$/.test(v) ? '' : 'ภาษาไทยเท่านั้น'),
+    phone: (v) => (!v ? 'กรุณากรอกเบอร์โทร' : /^0\d{9}$/.test(v) ? '' : v[0] !== '0' ? 'ต้องขึ้นต้นด้วย 0' : `ต้องมี 10 หลัก (ตอนนี้ ${v.length} หลัก)`),
+    password: (v) => (!v ? 'กรุณาตั้งรหัสผ่าน' : v.length >= 6 ? '' : 'อย่างน้อย 6 ตัว'),
+  };
+  function setErr(input, msg) {
+    const box = input.closest('.field');
+    let el = box.querySelector('.err');
+    if (!el) { el = document.createElement('small'); el.className = 'err'; box.appendChild(el); }
+    el.textContent = msg || '';
+    input.classList.toggle('invalid', !!msg);
+    return !msg;
+  }
+  // ปรับค่าระหว่างพิมพ์: รหัสพนักงานเป็นตัวใหญ่, เบอร์เป็นตัวเลข, ชื่อเป็นภาษาไทย
+  function bindInputs(form) {
+    const code = form.querySelector('[name="emp_code"]');
+    if (code) code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.classList.contains('invalid')) setErr(code, RULES.emp_code(code.value)); });
+    const phone = form.querySelector('[name="phone"]');
+    if (phone) phone.addEventListener('input', () => { phone.value = phone.value.replace(/\D/g, '').slice(0, 10); if (phone.classList.contains('invalid')) setErr(phone, RULES.phone(phone.value)); });
+    form.querySelectorAll('[data-thai]').forEach((inp) => inp.addEventListener('input', () => {
+      const clean = inp.value.replace(/[^ก-๎]/g, '');
+      if (clean !== inp.value) { inp.value = clean; setErr(inp, 'พิมพ์ได้เฉพาะภาษาไทย (เปลี่ยนแป้นพิมพ์เป็นภาษาไทย)'); }
+      else setErr(inp, '');
+    }));
+    form.querySelectorAll('.pw-toggle').forEach((b) => (b.onclick = () => {
+      const inp = b.previousElementSibling;
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    }));
+  }
+  const pwField = (name, label, auto, hint = '') => `
+    <label class="field"><span>${label}${hint ? ` <small>${hint}</small>` : ''}</span>
+      <div class="pw"><input type="password" name="${name}" autocomplete="${auto}" required><button type="button" class="pw-toggle" aria-label="แสดงรหัสผ่าน">${ICON_EYE}</button></div></label>`;
+
+  function busy(btn, on, label) {
+    btn.disabled = on;
+    if (on) { btn.dataset.label = btn.textContent; btn.textContent = label || 'กำลังส่ง…'; }
+    else btn.textContent = btn.dataset.label || btn.textContent;
+  }
+
+  // ---------- Session ----------
+  function signIn(data) {
+    token = data.token;
+    me = data.employee;
+    store.set('emp_token', token);
+    store.set('emp_profile', me);
+    store.set('last_emp_code', me.emp_code);
+    startApp();
+  }
+  function signOut(msg) {
+    stopGps();
+    clearInterval(liveTimer);
+    document.querySelector('.scanner .scan-x')?.click();
+    token = null;
+    me = null;
+    store.del('emp_token');
+    store.del('emp_profile');
+    renderLogin();
+    if (msg) toast(msg, true);
+  }
+
+  function authLayout(on) {
+    document.body.classList.toggle('authing', on);
+    tabbar.hidden = on;
+    userBox.textContent = on || !me ? '' : me.emp_code;
+  }
+
+  // ---------- Login ----------
+  function renderLogin() {
+    authLayout(true);
+    view.innerHTML = `
+      <div class="auth-hero"><img src="icon.svg" alt=""><h1>เข้าสู่ระบบ</h1><p class="muted">ลงเวลาทำงาน พนักงานนอก</p></div>
+      <div class="card warn-box" id="tooMany" hidden>
+        <b>กรอกรหัสผ่านผิด <span id="failN">5</span> ครั้งแล้ว</b>
+        <p>ถ้าจำรหัสผ่านไม่ได้ กดปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่ด้วยรหัสพนักงานและเบอร์โทร</p>
+        <button type="button" class="btn primary big" id="forgot2">ลืมรหัสผ่าน ตั้งรหัสใหม่</button>
+      </div>
+      <form class="card" id="f" novalidate>
+        <label class="field"><span>รหัสพนักงาน</span>
+          <input name="emp_code" autocapitalize="characters" autocomplete="username" spellcheck="false" placeholder="เช่น EMP001" value="${esc(store.get('last_emp_code', ''))}" required></label>
+        ${pwField('password', 'รหัสผ่าน', 'current-password')}
+        <button class="btn primary big" type="submit" id="submit">เข้าสู่ระบบ</button>
+        <button type="button" class="linkbtn" id="forgot">ลืมรหัสผ่าน?</button>
+      </form>
+      <div class="auth-alt"><span class="muted">ยังไม่มีบัญชี?</span><button class="btn ghost big" id="reg">ลงทะเบียนครั้งแรก</button></div>`;
+    const f = document.getElementById('f');
+    bindInputs(f);
+    document.getElementById('reg').onclick = renderRegister;
+    document.getElementById('forgot').onclick = () => renderForgot(f.emp_code.value);
+    document.getElementById('forgot2').onclick = () => renderForgot(f.emp_code.value);
+
+    // นับจำนวนครั้งที่กรอกผิด (กรอกผิดได้ไม่จำกัด แต่ครบ 5 ครั้งจะแนะนำให้กดลืมรหัสผ่าน)
+    const FAIL_ALERT_AT = 5;
+    let fails = 0;
+    const showTooMany = () => {
+      const box = document.getElementById('tooMany');
+      document.getElementById('failN').textContent = fails;
+      box.hidden = fails < FAIL_ALERT_AT;
+    };
+    f.emp_code.addEventListener('change', () => { fails = 0; showTooMany(); });
+
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const ok = setErr(f.emp_code, f.emp_code.value ? '' : 'กรุณากรอกรหัสพนักงาน') & setErr(f.password, f.password.value ? '' : 'กรุณากรอกรหัสผ่าน');
+      if (!ok) return;
+      const btn = document.getElementById('submit');
+      busy(btn, true, 'กำลังเข้าสู่ระบบ…');
+      try { signIn(await api('/api/auth/login', { emp_code: f.emp_code.value, password: f.password.value })); }
+      catch (err) {
+        busy(btn, false);
+        if (err.status !== 401) return toast(err.message, true);
+        fails++;
+        f.password.value = '';
+        showTooMany();
+        if (fails === FAIL_ALERT_AT) {
+          window.scrollTo(0, 0);
+          if (confirm(`กรอกรหัสผ่านผิด ${FAIL_ALERT_AT} ครั้งแล้ว\nต้องการตั้งรหัสผ่านใหม่ด้วย “ลืมรหัสผ่าน” หรือไม่?`)) return renderForgot(f.emp_code.value);
+        } else {
+          toast(fails < FAIL_ALERT_AT ? `${err.message} (ครั้งที่ ${fails})` : err.message, true);
+        }
+        f.password.focus();
+      }
+    };
+  }
+
+  // ---------- Register ----------
+  function renderRegister() {
+    authLayout(true);
+    view.innerHTML = `
+      <button class="back" id="back">‹ กลับไปหน้าเข้าสู่ระบบ</button>
+      <h1 class="screen-title"><span class="dot"></span>ลงทะเบียนพนักงาน</h1>
+      <form class="card" id="f" novalidate>
+        <label class="field"><span>รหัสพนักงาน <small>อักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข</small></span>
+          <input name="emp_code" autocapitalize="characters" autocomplete="username" spellcheck="false" maxlength="20" placeholder="เช่น EMP001" required></label>
+        <div class="field"><span class="field-label">คำนำหน้าชื่อ</span>
+          <div class="seg" role="radiogroup">${TITLES.map((t) => `<label><input type="radio" name="title" value="${t}"><span>${t}</span></label>`).join('')}</div></div>
+        <label class="field"><span>ชื่อ <small>ภาษาไทยเท่านั้น</small></span>
+          <input name="first_name" data-thai autocomplete="given-name" lang="th" placeholder="เช่น สมชาย" maxlength="60" required></label>
+        <label class="field"><span>นามสกุล <small>ภาษาไทยเท่านั้น</small></span>
+          <input name="last_name" data-thai autocomplete="family-name" lang="th" placeholder="เช่น ใจดี" maxlength="60" required></label>
+        <label class="field"><span>เบอร์โทรศัพท์ <small>10 หลัก ขึ้นต้นด้วย 0</small></span>
+          <input name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" placeholder="0812345678" required></label>
+        ${pwField('password', 'ตั้งรหัสผ่าน', 'new-password', 'อย่างน้อย 6 ตัว')}
+        ${pwField('password2', 'ยืนยันรหัสผ่าน', 'new-password')}
+        <p class="hint">จดรหัสพนักงานและเบอร์โทรไว้ ถ้าลืมรหัสผ่านจะใช้ 2 อย่างนี้ตั้งรหัสใหม่ได้</p>
+        <button class="btn primary big" type="submit" id="submit">ลงทะเบียน</button>
+      </form>`;
+    const f = document.getElementById('f');
+    bindInputs(f);
+    document.getElementById('back').onclick = renderLogin;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const d = {
+        emp_code: f.emp_code.value.trim(),
+        title: f.title.value,
+        first_name: f.first_name.value.trim(),
+        last_name: f.last_name.value.trim(),
+        phone: f.phone.value.trim(),
+        password: f.password.value,
+      };
+      let ok = true;
+      for (const k of ['emp_code', 'first_name', 'last_name', 'phone', 'password']) ok = setErr(f[k], RULES[k](d[k])) && ok;
+      ok = setErr(f.password2, f.password2.value === d.password ? '' : 'รหัสผ่านไม่ตรงกัน') && ok;
+      const seg = f.querySelector('.seg');
+      ok = setErr(seg.querySelector('input'), d.title ? '' : 'กรุณาเลือกคำนำหน้า') && ok;
+      if (!ok) { f.querySelector('.invalid')?.focus(); return toast('กรุณาตรวจสอบข้อมูลที่ทำเครื่องหมายสีแดง', true); }
+      const btn = document.getElementById('submit');
+      busy(btn, true, 'กำลังลงทะเบียน…');
+      try { signIn(await api('/api/auth/register', d)); toast('ลงทะเบียนสำเร็จ'); }
+      catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+    f.querySelectorAll('.seg input').forEach((r) => (r.onchange = () => setErr(r, '')));
+  }
+
+  // ---------- Forgot password ----------
+  function renderForgot(prefill = '') {
+    authLayout(true);
+    view.innerHTML = `
+      <button class="back" id="back">‹ กลับไปหน้าเข้าสู่ระบบ</button>
+      <h1 class="screen-title"><span class="dot"></span>ลืมรหัสผ่าน</h1>
+      <form class="card" id="f" novalidate>
+        <p class="hint" style="margin-top:0">กรอกรหัสพนักงานและเบอร์โทรที่ใช้ตอนลงทะเบียน เพื่อตั้งรหัสผ่านใหม่</p>
+        <label class="field"><span>รหัสพนักงาน</span>
+          <input name="emp_code" autocapitalize="characters" spellcheck="false" placeholder="เช่น EMP001" value="${esc(prefill || store.get('last_emp_code', ''))}" required></label>
+        <label class="field"><span>เบอร์โทรศัพท์</span>
+          <input name="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="0812345678" required></label>
+        <button class="btn primary big" type="submit" id="submit">ยืนยัน</button>
+      </form>`;
+    const f = document.getElementById('f');
+    bindInputs(f);
+    document.getElementById('back').onclick = renderLogin;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const ok = setErr(f.emp_code, RULES.emp_code(f.emp_code.value)) & setErr(f.phone, RULES.phone(f.phone.value));
+      if (!ok) return;
+      const btn = document.getElementById('submit');
+      busy(btn, true, 'กำลังตรวจสอบ…');
+      try {
+        const r = await api('/api/auth/forgot', { emp_code: f.emp_code.value, phone: f.phone.value });
+        renderNewPassword(r.reset_token, r.name);
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+  }
+
+  function renderNewPassword(resetToken, name) {
+    view.innerHTML = `
+      <h1 class="screen-title"><span class="dot"></span>ตั้งรหัสผ่านใหม่</h1>
+      <form class="card" id="f" novalidate>
+        <div class="who"><span class="badge approved">ยืนยันตัวตนแล้ว</span><b>${esc(name)}</b></div>
+        ${pwField('password', 'รหัสผ่านใหม่', 'new-password', 'อย่างน้อย 6 ตัว')}
+        ${pwField('password2', 'ยืนยันรหัสผ่านใหม่', 'new-password')}
+        <button class="btn primary big" type="submit" id="submit">บันทึกและเข้าสู่ระบบ</button>
+      </form>`;
+    const f = document.getElementById('f');
+    bindInputs(f);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const ok = setErr(f.password, RULES.password(f.password.value)) & setErr(f.password2, f.password2.value === f.password.value ? '' : 'รหัสผ่านไม่ตรงกัน');
+      if (!ok) return;
+      const btn = document.getElementById('submit');
+      busy(btn, true, 'กำลังบันทึก…');
+      try { signIn(await api('/api/auth/reset', { reset_token: resetToken, password: f.password.value })); toast('ตั้งรหัสผ่านใหม่แล้ว'); }
+      catch (err) { toast(err.message, true); busy(btn, false); if (/หมดเวลา/.test(err.message)) renderForgot(); }
+    };
+  }
+
+  // ---------- เวลาจริงจากเซิร์ฟเวอร์ (ไม่ใช้เวลาในเครื่อง ป้องกันการตั้งเวลาเอง) ----------
+  const TZ = 'Asia/Bangkok';
+  let clockOffset = 0; // serverTime - Date.now()
+  const serverNow = () => new Date(Date.now() + clockOffset);
+  async function syncClock() {
+    try {
+      const t0 = Date.now();
+      const { now } = await api('/api/time');
+      const t1 = Date.now();
+      clockOffset = Date.parse(now) + (t1 - t0) / 2 - t1;
+    } catch { /* ออฟไลน์: ใช้ค่าเดิม */ }
+  }
+  const fmtClock = (d) => d.toLocaleTimeString('th-TH', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const fmtDay = (d) => d.toLocaleDateString('th-TH', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fmtStamp = (d) => `${d.toLocaleDateString('th-TH', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric' })} ${fmtClock(d)} น.`;
+
+  // ---------- Locations (พิกัด + รัศมี ตั้งโดยผู้ดูแล) ----------
+  let sites = [];
+  const loadSites = () => api('/api/locations').then((d) => { sites = d.locations || []; }).catch(() => {});
+  loadSites();
+  const haversine = (lat1, lng1, lat2, lng2) => {
+    const R = 6371000;
+    const toRad = (x) => (x * Math.PI) / 180;
+    const a = Math.sin(toRad(lat2 - lat1) / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(toRad(lng2 - lng1) / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+  // คำนวณเหมือนฝั่งเซิร์ฟเวอร์ (เซิร์ฟเวอร์คำนวณซ้ำเองตอนบันทึก)
+  function matchSite(lat, lng) {
+    const list = sites.filter((s) => s.lat != null && s.lng != null);
+    if (!list.length) return { configured: false };
+    let best = null;
+    for (const s of list) {
+      const d = haversine(lat, lng, s.lat, s.lng);
+      if (!best || d - s.radius < best.distance - best.site.radius) best = { site: s, distance: d };
+    }
+    return { ...best, inside: best.distance <= best.site.radius, configured: true };
+  }
+  const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} กม.` : `${Math.round(m)} ม.`);
+
+  // header clock
+  const clock = document.getElementById('clock');
+  const tick = () => (clock.textContent = serverNow().toLocaleString('th-TH', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }));
+  tick();
+  setInterval(tick, 15000);
+  syncClock().then(tick);
+
+  // ---------- ตรวจจับใบหน้า (MediaPipe) ----------
+  const MP_VER = '0.10.14';
+  const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+  const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
+  let detectorPromise = null;
+  function loadFaceDetector() {
+    if (!detectorPromise) {
+      detectorPromise = (async () => {
+        const vision = await import(`${MP_BASE}/vision_bundle.mjs`);
+        const files = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+        const make = (delegate) => vision.FaceDetector.createFromOptions(files, {
+          baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', minDetectionConfidence: 0.6,
+        });
+        try { return await make('GPU'); } catch { return await make('CPU'); }
+      })().catch((e) => { detectorPromise = null; throw e; });
+    }
+    return detectorPromise;
+  }
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  const VIRTUAL_CAM_RE = /virtual|obs|manycam|snap camera|xsplit|droidcam|epoccam|iriun|camo|ndi|splitcam|youcam|e2esoft|vcam/i;
+
+  // ---------- GPS (บังคับ: ใช้พิกัดจริงตอนสแกน) ----------
+  let geoWatch = null;
+  let lastFix = null;
+  const gpsLog = []; // เก็บพิกัดทุกจุดที่ได้รับ เพื่อส่งให้เซิร์ฟเวอร์ตรวจการปลอมตำแหน่ง
+  const toFix = (p) => {
+    const fix = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: p.timestamp, got: Date.now() };
+    gpsLog.push(fix);
+    if (gpsLog.length > 60) gpsLog.shift();
+    return fix;
+  };
+  // ขอพิกัดใหม่ ณ ตอนนี้ (ไม่ใช้ค่าที่เครื่องจำไว้)
+  const freshFix = (timeout) => new Promise((resolve) => {
+    if (!('geolocation' in navigator)) return resolve(null);
+    navigator.geolocation.getCurrentPosition((p) => resolve(toFix(p)), () => resolve(null), { enableHighAccuracy: true, maximumAge: 0, timeout });
+  });
+  function startGps(onUpdate) {
+    stopGps();
+    if (!('geolocation' in navigator)) return onUpdate(null, 'อุปกรณ์นี้ไม่รองรับ GPS');
+    geoWatch = navigator.geolocation.watchPosition(
+      (p) => {
+        lastFix = toFix(p);
+        onUpdate(lastFix);
+      },
+      (err) => onUpdate(null, err.code === 1 ? 'ไม่ได้อนุญาตให้ใช้ตำแหน่ง กรุณาเปิดสิทธิ์ตำแหน่งที่ตั้งให้แอปนี้' : 'หาตำแหน่ง GPS ไม่ได้ กรุณาเปิด GPS แล้วลองใหม่'),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
+    );
+  }
+  function stopGps() {
+    if (geoWatch !== null) navigator.geolocation.clearWatch(geoWatch);
+    geoWatch = null;
+  }
+
+  // ---------- ประทับข้อมูลลงรูป (มุมขวาล่าง) ----------
+  function stampPhoto(canvas, lines) {
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const fs = Math.max(15, Math.round(Math.min(w, h) / 30));
+    const lh = Math.round(fs * 1.38);
+    ctx.font = `600 ${fs}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
+    const maxText = Math.min(w * 0.9, Math.max(...lines.map((l) => ctx.measureText(l.text).width)));
+    const pad = Math.round(fs * 0.7);
+    const boxW = maxText + pad * 2;
+    const boxH = lh * lines.length + pad * 1.4;
+    const x = w - boxW - pad;
+    const y = h - boxH - pad;
+    ctx.fillStyle = 'rgba(0,0,0,.62)';
+    if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, fs * 0.5); ctx.fill(); } else ctx.fillRect(x, y, boxW, boxH);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    lines.forEach((l, i) => {
+      ctx.font = `${l.bold ? 700 : 500} ${fs}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
+      ctx.fillStyle = l.color || '#fff';
+      ctx.fillText(l.text, w - pad * 2, y + pad * 0.7 + i * lh, maxText);
+    });
+    return canvas.toDataURL('image/jpeg', 0.85);
+  }
+
+  const whoChip = () => `<div class="who"><span class="avatar">${esc(me.first_name.slice(0, 1))}</span><div><b>${esc(me.name)}</b><small>รหัส ${esc(me.emp_code)}</small></div></div>`;
+
+  // ---------- Check-in / Check-out ----------
+  let liveTimer = null;
+  function renderAttendance(mode) {
+    const isIn = mode === 'in';
+    const label = isIn ? 'เช็คอิน' : 'เช็คเอ้าท์';
+    view.innerHTML = `
+      <h1 class="screen-title ${mode}"><span class="dot"></span>${label} · ${isIn ? 'เข้างาน' : 'เลิกงาน'}</h1>
+      <div class="card">
+        ${whoChip()}
+        <div class="live-clock"><small>เวลาจริงจากระบบ (ตั้งเองไม่ได้)</small><b id="lc">--:--:--</b><span id="ld"></span></div>
+        <div class="info-row" id="gpsRow"><span class="ico">📍</span><div><b>พิกัด GPS</b><div id="gpsText" class="muted">กำลังหาตำแหน่ง…</div></div></div>
+        <div class="info-row" id="siteRow"><span class="ico">🏢</span><div><b>สถานที่ทำงาน</b><div id="siteText" class="muted">รอพิกัด GPS…</div></div></div>
+        <label class="field" id="siteChoose" hidden><span>เลือกสถานที่ทำงาน</span><select name="site"><option value="">— เลือกสถานที่ —</option></select></label>
+        <button class="btn primary big scan-btn" id="scanBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>
+          สแกนใบหน้า${isIn ? 'เข้างาน' : 'ออกงาน'}</button>
+        <p class="hint">กดแล้วหันหน้าเข้ากล้องค้างไว้ 5 วินาที ระบบจะถ่ายรูปพร้อมประทับเวลาจริง พิกัด และสถานที่ทำงานให้อัตโนมัติ</p>
+        <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
+      </div>`;
+
+    const lc = document.getElementById('lc');
+    const ld = document.getElementById('ld');
+    const drawClock = () => { const d = serverNow(); lc.textContent = fmtClock(d); ld.textContent = fmtDay(d); };
+    drawClock();
+    clearInterval(liveTimer);
+    liveTimer = setInterval(() => { if (document.getElementById('lc')) drawClock(); else clearInterval(liveTimer); }, 1000);
+
+    const scanBtn = document.getElementById('scanBtn');
+    const gpsText = document.getElementById('gpsText');
+    const siteText = document.getElementById('siteText');
+    const siteChoose = document.getElementById('siteChoose');
+    const siteSelect = siteChoose.querySelector('select');
+
+    if (!window.isSecureContext) {
+      gpsText.innerHTML = '<span class="bad">ต้องเปิดแอปผ่าน https:// เท่านั้น จึงจะใช้กล้องและ GPS ได้</span>';
+      siteText.textContent = '–';
+      return;
+    }
+
+    const refresh = () => {
+      if (!lastFix) return;
+      gpsText.innerHTML = `${lastFix.lat.toFixed(6)}, ${lastFix.lng.toFixed(6)} <span class="${lastFix.accuracy > 150 ? 'warn' : 'ok'}">(±${Math.round(lastFix.accuracy)} ม.)</span>`;
+      const m = matchSite(lastFix.lat, lastFix.lng);
+      if (m.configured) {
+        siteChoose.hidden = true;
+        siteText.innerHTML = m.inside
+          ? `<b class="ok">${esc(m.site.name)}</b> <span class="muted">· อยู่ในพื้นที่ (${fmtDist(m.distance)})</span>`
+          : `<b class="warn">${esc(m.site.name)}</b> <span class="warn">· นอกพื้นที่ ห่าง ${fmtDist(m.distance)}</span><div class="sub">ยังลงเวลาได้ แต่ระบบจะแจ้งผู้ดูแลให้ตรวจสอบ</div>`;
+      } else {
+        siteText.textContent = 'ผู้ดูแลยังไม่ได้ตั้งพิกัดสถานที่ กรุณาเลือกสถานที่';
+        if (siteChoose.hidden) {
+          siteSelect.innerHTML = '<option value="">— เลือกสถานที่ —</option>' + sites.map((s) => `<option${s.name === store.get('last_location', '') ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+          siteChoose.hidden = false;
+        }
+      }
+      scanBtn.disabled = false;
+    };
+
+    loadSites().then(refresh);
+    startGps((fix, err) => {
+      if (!document.getElementById('gpsText')) return stopGps();
+      if (err) { gpsText.innerHTML = `<span class="bad">${esc(err)}</span>`; scanBtn.disabled = true; return; }
+      refresh();
+    });
+    if (lastFix && Date.now() - lastFix.got < 60000) refresh();
+    loadFaceDetector().catch(() => {}); // โหลดล่วงหน้า
+
+    scanBtn.onclick = () => {
+      const m = lastFix && matchSite(lastFix.lat, lastFix.lng);
+      const choice = m && !m.configured ? siteSelect.value || '' : '';
+      if (m && !m.configured && sites.length && !choice) return toast('กรุณาเลือกสถานที่ทำงาน', true);
+      if (choice) store.set('last_location', choice);
+      runScanner(mode, choice);
+    };
+  }
+
+  // ---------- หน้าจอสแกนใบหน้า 5 วินาที ----------
+  async function runScanner(mode, locationChoice) {
+    const label = mode === 'in' ? 'เช็คอิน' : 'เช็คเอ้าท์';
+    const ov = document.createElement('div');
+    ov.className = 'scanner';
+    ov.innerHTML = `
+      <div class="scan-top"><b>สแกนใบหน้า${mode === 'in' ? 'เข้างาน' : 'ออกงาน'}</b><button class="scan-x" aria-label="ยกเลิก">ยกเลิก</button></div>
+      <div class="scan-stage">
+        <video playsinline muted autoplay></video>
+        <svg class="scan-ring" viewBox="0 0 100 130" preserveAspectRatio="none"><ellipse class="track" cx="50" cy="62" rx="36" ry="48"/><ellipse class="prog" id="prog" cx="50" cy="62" rx="36" ry="48" pathLength="100"/></svg>
+        <div class="scan-count" id="cnt"></div>
+      </div>
+      <div class="scan-status" id="st">กำลังเปิดกล้อง…</div>`;
+    document.body.appendChild(ov);
+    document.body.classList.add('scanning');
+
+    const video = ov.querySelector('video');
+    const st = ov.querySelector('#st');
+    const cnt = ov.querySelector('#cnt');
+    const prog = ov.querySelector('#prog');
+    let stream = null;
+    let raf = 0;
+    let closed = false;
+    const close = () => {
+      closed = true;
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      ov.remove();
+      document.body.classList.remove('scanning');
+    };
+    ov.querySelector('.scan-x').onclick = close;
+    const fail = (msg) => { close(); toast(msg, true); };
+
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) return fail('อุปกรณ์นี้ไม่รองรับกล้อง');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+      } catch (e) {
+        return fail(e.name === 'NotAllowedError' ? 'ไม่ได้อนุญาตให้ใช้กล้อง กรุณาเปิดสิทธิ์กล้องให้แอปนี้' : 'เปิดกล้องไม่ได้ กรุณาลองใหม่');
+      }
+      if (closed) return close();
+      const track = stream.getVideoTracks()[0];
+      const cameraLabel = track?.label || '';
+      if (VIRTUAL_CAM_RE.test(cameraLabel)) return fail('ไม่อนุญาตให้ใช้กล้องเสมือนหรือโปรแกรมปลอมภาพ');
+      video.srcObject = stream;
+      video.play().catch(() => {}); // ไม่รอ play() เพราะจะค้างถ้ากล้องไม่ส่งภาพ (มีตัวจับเวลาด้านล่าง)
+      // รอภาพจากกล้องไม่เกิน 10 วินาที (กันค้างถ้ากล้องถูกแอปอื่นใช้อยู่)
+      const camReady = await Promise.race([
+        new Promise((r) => (video.readyState >= 2 ? r(true) : video.addEventListener('loadeddata', () => r(true), { once: true }))),
+        new Promise((r) => setTimeout(() => r(false), 10000)),
+      ]);
+      if (closed) return;
+      if (!camReady) return fail('กล้องไม่ส่งภาพ กรุณาปิดแอปอื่นที่ใช้กล้องอยู่ แล้วลองใหม่');
+
+      st.textContent = 'กำลังเตรียมระบบตรวจใบหน้า…';
+      let detector = null;
+      try { detector = await withTimeout(loadFaceDetector(), 15000); } catch { detector = null; }
+      if (closed) return;
+      if (!lastFix) return fail('ไม่พบพิกัด GPS กรุณารอสักครู่แล้วสแกนใหม่');
+
+      // ขอรหัสสแกนจากเซิร์ฟเวอร์ = จุดเริ่มนับเวลาจริง
+      const cap = await api('/api/capture/start', { type: mode });
+      if (closed) return;
+      const t0 = performance.now();
+      const scanWall = Date.now();
+      const serverStart = Date.parse(cap.server_time);
+      let okMs = 0;
+      let okFrames = 0;
+      let frames = 0;
+      let seenFace = false;
+      let last = t0;
+      let lastDetect = -1;
+
+      const step = () => {
+        if (closed) return;
+        const now = performance.now();
+        const dt = Math.min(now - last, 200);
+        last = now;
+        let state = 'none';
+        if (detector) {
+          if (now > lastDetect) {
+            try {
+              const res = detector.detectForVideo(video, now);
+              lastDetect = now;
+              const faces = (res.detections || []).filter((d) => (d.categories?.[0]?.score ?? 0) >= 0.6);
+              if (faces.length > 1) state = 'many';
+              else if (faces.length === 1) state = faces[0].boundingBox.width / video.videoWidth >= 0.18 ? 'ok' : 'far';
+            } catch { state = 'none'; }
+          }
+        } else state = 'ok';
+        // นับสัดส่วนใบหน้าตั้งแต่เจอหน้าครั้งแรก (ช่วงจัดท่าก่อนหน้านั้นไม่นับ)
+        if (state === 'ok') { seenFace = true; okFrames++; okMs += dt; }
+        if (seenFace) frames++;
+        const remain = Math.max(0, SCAN_MS - okMs);
+        prog.style.strokeDashoffset = String(100 - (okMs / SCAN_MS) * 100);
+        ov.classList.toggle('face-ok', state === 'ok');
+        cnt.textContent = Math.ceil(remain / 1000) || '';
+        st.textContent = !detector ? 'ค้างไว้นิ่งๆ… (ระบบตรวจใบหน้าไม่พร้อม จะแจ้งผู้ดูแลตรวจสอบ)'
+          : state === 'ok' ? 'พบใบหน้า ค้างไว้นิ่งๆ…'
+          : state === 'many' ? 'พบหลายใบหน้า ให้มีเพียงคุณคนเดียวในกล้อง'
+          : state === 'far' ? 'ขยับหน้าเข้าใกล้กล้องอีกนิด'
+          : 'หันหน้าเข้ากล้องให้อยู่ในกรอบ';
+
+        if (okMs >= SCAN_MS && now - t0 >= SCAN_MS) return finish(now - t0, okFrames / Math.max(1, frames));
+        if (now - t0 > 90000) return fail('สแกนไม่สำเร็จภายในเวลา กรุณาลองใหม่ในที่มีแสงสว่าง');
+        raf = requestAnimationFrame(step);
+      };
+      const SCAN_MS = cap.scan_ms || 5000;
+      st.textContent = 'หันหน้าเข้ากล้องให้อยู่ในกรอบ';
+      raf = requestAnimationFrame(step);
+
+      const finish = (elapsed, faceRatio) => capture(elapsed, faceRatio).catch((err) => fail(err.message || 'เกิดข้อผิดพลาด กรุณาสแกนใหม่'));
+      const capture = async (elapsed, faceRatio) => {
+        // ถ่ายภาพจากกล้องจริง (ไม่กลับด้าน)
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        const scale = Math.min(1, 1280 / Math.max(vw, vh));
+        const c = document.createElement('canvas');
+        c.width = Math.round(vw * scale);
+        c.height = Math.round(vh * scale);
+        c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+        const shotAt = new Date(serverStart + elapsed);
+        stream?.getTracks().forEach((t) => t.stop());
+
+        // ขอพิกัดใหม่ ณ วินาทีที่ถ่าย (ไม่ใช้ค่าเก่า) ถ้าไม่ได้ ใช้จุดล่าสุดที่ได้ระหว่างสแกนเท่านั้น
+        cnt.textContent = '';
+        ov.classList.remove('face-ok');
+        st.textContent = 'ถ่ายรูปแล้ว กำลังยืนยันพิกัด GPS ตอนถ่าย…';
+        let fix = await freshFix(12000);
+        if (closed) return;
+        if (!fix) fix = [...gpsLog].reverse().find((s) => s.got >= scanWall) || null;
+        if (!fix) return fail('ยืนยันพิกัด GPS ตอนถ่ายไม่ได้ กรุณาออกไปที่โล่งแล้วสแกนใหม่');
+        const samples = gpsLog.filter((s) => s.got >= scanWall - 1000 && s !== fix).slice(-20)
+          .map((s) => ({ lat: s.lat, lng: s.lng, accuracy: s.accuracy }));
+        close();
+
+        const m = matchSite(fix.lat, fix.lng);
+        const placeName = m.configured ? m.site.name : locationChoice || 'ไม่ระบุสถานที่';
+        const photo = stampPhoto(c, [
+          { text: `${label} · ${me.name}`, bold: true },
+          { text: `รหัสพนักงาน ${me.emp_code}` },
+          { text: fmtStamp(shotAt), bold: true, color: '#ffd166' },
+          { text: `สถานที่ ${placeName}${m.configured && !m.inside ? ' (นอกพื้นที่)' : ''}` },
+          { text: `พิกัด ${fix.lat.toFixed(6)}, ${fix.lng.toFixed(6)} (±${Math.round(fix.accuracy)} ม.)` },
+          { text: `รหัสตรวจสอบ ${cap.verify_code}`, color: '#9be9df' },
+        ]);
+        // รูปย่อสำหรับตารางผู้ดูแล (ไม่ต้องโหลดรูปเต็มทุกแถว)
+        const tc = document.createElement('canvas');
+        const ts = 128 / Math.max(c.width, c.height);
+        tc.width = Math.round(c.width * ts);
+        tc.height = Math.round(c.height * ts);
+        tc.getContext('2d').drawImage(c, 0, 0, tc.width, tc.height);
+        const thumb = tc.toDataURL('image/jpeg', 0.7);
+        renderConfirm({
+          mode, label, photo, placeName, shotAt, fix,
+          payload: {
+            nonce: cap.nonce, elapsed_ms: Math.round(elapsed), photo, thumb,
+            lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, gps_samples: samples,
+            gps_pos_age_ms: Math.round(fix.got - fix.at), // เวลาที่พิกัดถูกวัด เทียบกับเวลาที่ได้รับ (แอปปลอมมักค้าง)
+            face_check: detector ? 'ok' : 'unavailable', face_ratio: Math.round(faceRatio * 1000) / 1000,
+            camera_label: cameraLabel, touch: navigator.maxTouchPoints > 0, location_choice: locationChoice,
+          },
+          verify: cap.verify_code,
+        });
+      };
+    } catch (err) {
+      fail(err.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่');
+    }
+  }
+
+  function renderConfirm(s) {
+    stopGps();
+    view.innerHTML = `
+      <h1 class="screen-title ${s.mode}"><span class="dot"></span>ตรวจสอบรูป${s.label}</h1>
+      <div class="card">
+        <div class="shot protect"><img id="shot" alt="รูปสแกน" draggable="false"></div>
+        <dl class="kv">
+          <dt>เวลา</dt><dd>${esc(fmtStamp(s.shotAt))}</dd>
+          <dt>สถานที่</dt><dd>${esc(s.placeName)}</dd>
+          <dt>พิกัด</dt><dd>${s.fix.lat.toFixed(6)}, ${s.fix.lng.toFixed(6)}</dd>
+          <dt>รหัสตรวจสอบ</dt><dd>${esc(s.verify)}</dd>
+        </dl>
+        <button class="btn primary big" id="send">ยืนยันส่ง${s.label}</button>
+        <button class="btn ghost big" id="again" style="margin-top:10px">สแกนใหม่</button>
+        <p class="hint">ต้องกดส่งภายใน 5 นาที ไม่เช่นนั้นต้องสแกนใหม่</p>
+      </div>`;
+    document.getElementById('shot').src = s.photo;
+    document.getElementById('again').onclick = () => go(s.mode);
+    const btn = document.getElementById('send');
+    btn.onclick = async () => {
+      busy(btn, true, 'กำลังส่ง…');
+      try {
+        const saved = await api('/api/attendance', s.payload);
+        const rows = [
+          ['ชื่อ', me.name], ['วันที่ทำงาน', thDate(saved.work_date)], ['เวลา', `${fmtClock(new Date(saved.captured_at))} น.`],
+          ['สถานที่', saved.location], ['รหัสตรวจสอบ', saved.verify_code],
+        ];
+        if (saved.day?.shift) rows.push(['กะ', `${saved.day.shift.name} (${saved.day.shift.start}–${saved.day.shift.end} น.)`]);
+        if (saved.day?.issues?.length) rows.push(['หมายเหตุ', saved.day.issues.map((i) => i.text).join(', ')]);
+        for (const o of saved.auto_ot || []) rows.push([`OT ${o.type} อัตโนมัติ`, `${o.start}–${o.end} น. = ${o.hours} ชม. (รออนุมัติ)`]);
+        renderSuccess(`${s.label}สำเร็จ`, rows, s.photo);
+      } catch (err) {
+        toast(err.message, true);
+        busy(btn, false);
+        if (/สแกนใหม่|หมดเวลา/.test(err.message)) setTimeout(() => go(s.mode), 1500);
+      }
+    };
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- OT ----------
+  function renderOT() {
+    view.innerHTML = `
+      <h1 class="screen-title ot"><span class="dot"></span>ขอทำโอที (OT)</h1>
+      <form class="card" id="f" novalidate>
+        ${whoChip()}
+        <label class="field"><span>วันที่ทำโอที</span>
+          <input type="date" name="ot_date" value="${today()}" required></label>
+        <div class="field"><span class="field-label">ประเภทโอที</span>
+          <div class="ot-types" role="radiogroup">
+            ${OT_TYPES.map((t) => `
+              <label class="ot-type"><input type="radio" name="ot_type" value="${t.v}">
+                <span class="rate">${t.v}</span><span><b>${t.title}</b><small>${t.desc}</small></span></label>`).join('')}
+          </div></div>
+        <div class="grid-2">
+          <label class="field"><span>เริ่มโอที</span><input type="time" name="start_time" required></label>
+          <label class="field"><span>สิ้นสุดโอที</span><input type="time" name="end_time" required></label>
+        </div>
+        <label class="field"><span>จำนวนชั่วโมง <small>(คำนวณให้อัตโนมัติ แก้ไขได้)</small></span>
+          <input type="number" name="hours" min="0.5" max="24" step="0.5" inputmode="decimal" placeholder="0"></label>
+        <label class="field"><span>รายละเอียดงาน <small>(ไม่บังคับ)</small></span>
+          <textarea name="note" maxlength="500" placeholder="งานที่ทำช่วงโอที"></textarea></label>
+        <button class="btn primary big" type="submit" id="submit">ส่งคำขอ OT</button>
+      </form>`;
+
+    const f = document.getElementById('f');
+    let hoursEdited = false;
+    const recalc = () => { if (!hoursEdited) { const h = diffHours(f.start_time.value, f.end_time.value); f.hours.value = h === '' ? '' : h; } };
+    f.start_time.oninput = recalc;
+    f.end_time.oninput = recalc;
+    f.hours.oninput = () => { hoursEdited = f.hours.value !== ''; };
+
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const data = {
+        ot_date: f.ot_date.value,
+        ot_type: f.ot_type.value,
+        start_time: f.start_time.value,
+        end_time: f.end_time.value,
+        hours: f.hours.value ? Number(f.hours.value) : null,
+        note: f.note.value.trim(),
+      };
+      if (!data.ot_date) return toast('กรุณาเลือกวันที่ทำโอที', true);
+      if (!data.ot_type) return toast('กรุณาเลือกประเภทโอที', true);
+      if (!data.start_time || !data.end_time) return toast('กรุณาเลือกเวลาเริ่มและสิ้นสุดโอที', true);
+      if (data.hours !== null && !(data.hours > 0 && data.hours <= 24)) return toast('จำนวนชั่วโมงไม่ถูกต้อง', true);
+
+      const btn = document.getElementById('submit');
+      busy(btn, true);
+      try {
+        const saved = await api('/api/ot', data);
+        const t = OT_TYPES.find((x) => x.v === data.ot_type);
+        renderSuccess('ส่งคำขอ OT แล้ว', [
+          ['ชื่อ', me.name], ['วันที่', thDate(data.ot_date)], ['ประเภท', `${t.title} · ${t.desc}`],
+          ['เวลา', `${data.start_time} – ${data.end_time} น.`], ['ชั่วโมง', `${saved.hours} ชม.`], ['สถานะ', 'รออนุมัติ'],
+        ]);
+      } catch (err) {
+        toast(err.message, true);
+        busy(btn, false);
+      }
+    };
+  }
+
+  // ---------- Success ----------
+  function renderSuccess(title, rows, photo = null) {
+    view.innerHTML = `
+      <div class="card success">
+        <div class="check">${ICON_CHECK}</div>
+        <h2>${esc(title)}</h2>
+        <p class="muted">${esc(serverNow().toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'long', timeStyle: 'short' }))}</p>
+        ${photo ? '<div class="shot protect"><img id="shot" alt="" draggable="false"></div>' : ''}
+        <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+        <button class="btn ghost big" id="back">เสร็จสิ้น</button>
+      </div>`;
+    if (photo) document.getElementById('shot').src = photo;
+    document.getElementById('back').onclick = () => go('history');
+    window.scrollTo(0, 0);
+  }
+
+  // ---------- ปฏิทินการทำงาน (ดูสีรายวัน ไม่แสดงรูป) ----------
+  const DAY_STATUS = {
+    ok: 'ปกติ', problem: 'ไม่ถูกต้อง', absent: 'ไม่มีการสแกนในวันทำงาน', no_checkin: 'ไม่มีรูปสแกนเข้างาน', no_checkout: 'ไม่มีรูปสแกนออกงาน',
+    holiday: 'วันหยุด', holiday_work: 'ทำงานวันหยุด (OT)', working: 'กำลังทำงาน', pending: 'ยังไม่สแกนวันนี้', future: 'ยังไม่ถึง', none: '–',
+  };
+  const APPEAL_TH = { pending: 'คำร้องรอพิจารณา', approved: 'คำร้องได้รับอนุมัติ', rejected: 'คำร้องไม่ได้รับอนุมัติ' };
+  const WEEK_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  const ymOf = (d) => d.toLocaleDateString('en-CA', { timeZone: TZ }).slice(0, 7);
+  const shiftYm = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+  const monthTH = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }); };
+  let calMonth = null;
+  let calData = null;
+
+  async function renderCalendar(month) {
+    calMonth = month || calMonth || ymOf(serverNow());
+    view.innerHTML = `
+      <div class="cal-head">
+        <button class="btn ghost cal-nav" id="prevM" aria-label="เดือนก่อน">‹</button>
+        <h1 class="screen-title" style="margin:0"><span class="dot"></span>${esc(monthTH(calMonth))}</h1>
+        <button class="btn ghost cal-nav" id="nextM" aria-label="เดือนถัดไป">›</button>
+      </div>
+      <div id="calBody"><div class="card empty">กำลังโหลด…</div></div>`;
+    document.getElementById('prevM').onclick = () => renderCalendar(shiftYm(calMonth, -1));
+    document.getElementById('nextM').onclick = () => renderCalendar(shiftYm(calMonth, 1));
+    try {
+      calData = await api(`/api/me/calendar?month=${calMonth}`);
+      if (current !== 'cal') return;
+      // ย้อนดูได้ถึงเดือนที่เริ่มใช้ระบบ
+      document.getElementById('prevM').disabled = !!calData.start_date && calMonth <= calData.start_date.slice(0, 7);
+      drawCalendar();
+    } catch (err) {
+      const b = document.getElementById('calBody');
+      if (b) b.innerHTML = `<div class="card empty">${esc(err.message)}</div>`;
+    }
+  }
+
+  function drawCalendar() {
+    const { days, summary: s, schedule } = calData;
+    const lead = new Date(`${days[0].date}T12:00:00Z`).getUTCDay();
+    const today = serverNow().toLocaleDateString('en-CA', { timeZone: TZ });
+    const otTotal = s.ot['1.5'] + s.ot['2'] + s.ot['3'];
+    const mark = (d) => (d.appeal?.status === 'pending' ? '⏳' : d.color === 'excused' ? '✓' : d.status === 'holiday_work' ? 'OT' : d.color === 'red' ? '!' : d.color === 'green' ? '✓' : '');
+    document.getElementById('calBody').innerHTML = `
+      <div class="cal-stats">
+        <div><b>${s.work}</b><small>วันทำงาน</small></div>
+        <div class="c-green"><b>${s.ok}</b><small>ปกติ</small></div>
+        <div class="c-red"><b>${s.red}</b><small>ไม่ถูกต้อง</small></div>
+        <div class="c-purple"><b>${otTotal}</b><small>ชม. OT</small></div>
+      </div>
+      <div class="card cal-card">
+        <div class="cal-grid cal-week">${WEEK_TH.map((w, i) => `<span class="${schedule.weekly_off.includes(i) ? 'off' : ''}">${w}</span>`).join('')}</div>
+        <div class="cal-grid">
+          ${'<span></span>'.repeat(lead)}
+          ${days.map((d) => `<button class="cal-day c-${d.color}${d.date === today ? ' today' : ''}" data-date="${d.date}" aria-label="${esc(thDate(d.date))} ${esc(DAY_STATUS[d.status] || '')}">
+            <span class="n">${Number(d.date.slice(8))}</span><span class="m">${mark(d)}</span></button>`).join('')}
+        </div>
+        <div class="cal-legend">
+          <span><i class="c-green"></i>ปกติ</span><span><i class="c-red"></i>ไม่ถูกต้อง/ลืมสแกน/สาย</span>
+          <span><i class="c-gray"></i>วันหยุด</span><span><i class="c-purple"></i>ทำงานวันหยุด</span>
+          <span><i class="c-excused"></i>อนุมัติคำร้อง</span><span><i class="c-blue"></i>วันนี้/กำลังทำงาน</span>
+        </div>
+      </div>
+      <p class="hint">${schedule.shifts.map((x) => `${esc(x.name)} ${esc(x.start)}–${esc(x.end)} น.`).join(' · ')}<br>
+        แตะวันที่เป็น<b class="bad"> สีแดง </b>เพื่อดูสาเหตุและยื่นคำร้อง</p>`;
+    document.querySelectorAll('.cal-day').forEach((b) => (b.onclick = () => openDay(days.find((d) => d.date === b.dataset.date))));
+  }
+
+  function openSheet(html) {
+    closeSheet();
+    const el = document.createElement('div');
+    el.className = 'sheet-back';
+    el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet-grip"></div>${html}</div>`;
+    el.addEventListener('click', (e) => { if (e.target === el || e.target.closest('[data-close]')) closeSheet(); });
+    document.body.appendChild(el);
+    document.body.classList.add('sheet-open');
+    return el;
+  }
+  function closeSheet() {
+    document.querySelector('.sheet-back')?.remove();
+    document.body.classList.remove('sheet-open');
+  }
+
+  function openDay(d) {
+    const otRows = d.ot_detail.map((o) => `<li>OT ${esc(o.type)} · ${esc(o.start)}–${esc(o.end)} น. = <b>${o.hours} ชม.</b></li>`).join('');
+    const canAppeal = d.color === 'red' && d.appeal?.status !== 'pending';
+    const el = openSheet(`
+      <h2 class="sheet-title">${esc(thDate(d.date))}</h2>
+      <div class="day-badges"><span class="badge day-${d.color}">${esc(d.color === 'excused' ? 'อนุมัติคำร้องแล้ว' : DAY_STATUS[d.status] || '')}</span>
+        ${d.holiday_name ? `<span class="badge">${esc(d.holiday_name)}</span>` : ''}
+        ${d.appeal ? `<span class="badge ${d.appeal.status}">${esc(APPEAL_TH[d.appeal.status])}</span>` : ''}</div>
+      <dl class="kv">
+        ${d.shift ? `<dt>กะ</dt><dd>${esc(d.shift.name)} (${esc(d.shift.start)}–${esc(d.shift.end)} น.)</dd>` : ''}
+        <dt>สแกนเข้างาน</dt><dd>${d.checkin ? `${esc(d.checkin)} น.` : '<span class="bad">ไม่มี</span>'}</dd>
+        <dt>สแกนออกงาน</dt><dd>${d.checkout ? `${esc(d.checkout)} น.` : '<span class="bad">ไม่มี</span>'}</dd>
+        ${d.worked_hours != null ? `<dt>เวลาทำงาน</dt><dd>${d.worked_hours} ชม.</dd>` : ''}
+      </dl>
+      ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul></div>` : ''}
+      ${otRows ? `<div class="ot-box"><b>OT ที่ระบบคำนวณให้</b><ul>${otRows}</ul><small>ส่งเป็นคำขอ OT ให้ผู้ดูแลอนุมัติแล้ว</small></div>` : ''}
+      ${d.appeal ? `<div class="appeal-box"><b>คำร้องของคุณ:</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>
+        ${d.appeal.review_note ? `<div class="sub">ผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}</div>` : ''}
+      ${canAppeal ? `
+        <form id="apf" class="appeal-form" novalidate>
+          <b>${d.appeal?.status === 'rejected' ? 'ยื่นคำร้องใหม่' : 'ยื่นคำร้องสำหรับวันนี้'}</b>
+          <label class="field"><span>เหตุผล</span><select name="reason" required><option value="">— เลือกเหตุผล —</option>
+            ${calData.reasons.map((r) => `<option>${esc(r)}</option>`).join('')}</select></label>
+          <label class="field"><span>รายละเอียด</span><textarea name="note" maxlength="500" placeholder="อธิบายเหตุการณ์ เช่น โทรศัพท์แบตหมด สแกนไม่ได้ เข้างาน 07:55 น."></textarea></label>
+          <button class="btn primary big" type="submit" id="apBtn">ส่งคำร้อง</button>
+        </form>` : ''}
+      <button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>`);
+    const f = el.querySelector('#apf');
+    if (!f) return;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!f.reason.value) return toast('กรุณาเลือกเหตุผล', true);
+      if (f.note.value.trim().length < 5) return toast('กรุณาอธิบายรายละเอียด', true);
+      const btn = el.querySelector('#apBtn');
+      busy(btn, true);
+      try {
+        await api('/api/me/appeals', { date: d.date, reason: f.reason.value, note: f.note.value.trim() });
+        closeSheet();
+        toast('ส่งคำร้องแล้ว รอผู้ดูแลพิจารณา');
+        renderCalendar(calMonth);
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+  }
+
+  // ---------- History + profile ----------
+  async function renderHistory() {
+    view.innerHTML = `
+      <div class="card profile">
+        ${whoChip()}
+        <div class="muted">โทร ${esc(me.phone)}</div>
+        <button class="linkbtn danger" id="logout">ออกจากระบบ</button>
+      </div>
+      <h1 class="screen-title"><span class="dot"></span>ประวัติของฉัน</h1>
+      <div id="hist"><div class="card empty">กำลังโหลด…</div></div>`;
+    document.getElementById('logout').onclick = async () => {
+      if (!confirm('ออกจากระบบ?\nครั้งต่อไปต้องใส่รหัสพนักงานและรหัสผ่านใหม่')) return;
+      await api('/api/auth/logout', {}).catch(() => {});
+      signOut();
+    };
+    try {
+      const { attendance, ot } = await api('/api/me/history');
+      if (current !== 'history') return;
+      const items = [
+        ...attendance.map((a) => ({ at: a.created_at, html: `
+          <div class="card hist-item"><div class="main">
+            <div class="top"><span class="badge ${a.type}">${a.type === 'in' ? 'เช็คอิน' : 'เช็คเอ้าท์'}</span><span class="muted">${esc(a.captured_at ? fmtClock(new Date(a.captured_at)) : a.time)} น.</span></div>
+            <div><b>${esc(thDate(a.work_date))}</b></div>
+            <div class="meta">${esc(a.location)}${a.verify_code ? ` · รหัสตรวจสอบ ${esc(a.verify_code)}` : ''}</div></div></div>` })),
+        ...ot.map((o) => ({ at: o.created_at, html: `
+          <div class="card hist-item"><div class="main">
+            <div class="top"><span><span class="badge ot">OT ${esc(o.ot_type)}</span>${o.source === 'auto' ? ' <span class="badge">คำนวณอัตโนมัติ</span>' : ''}</span><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></div>
+            <div><b>${esc(thDate(o.ot_date))}</b> · ${esc(o.start_time)}–${esc(o.end_time)} น. (${esc(o.hours)} ชม.)</div>
+            ${o.review_note ? `<div class="meta">หมายเหตุผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</div></div>` })),
+      ].sort((a, b) => b.at.localeCompare(a.at));
+      document.getElementById('hist').innerHTML = items.length ? `<div class="hist">${items.map((i) => i.html).join('')}</div>` : '<div class="card empty">ยังไม่มีประวัติ</div>';
+    } catch (err) {
+      const h = document.getElementById('hist');
+      if (h) h.innerHTML = `<div class="card empty">${esc(err.message)}</div>`;
+    }
+  }
+
+  // ---------- Router ----------
+  let current = null;
+  function go(tab) {
+    current = tab;
+    stopGps();
+    clearInterval(liveTimer);
+    closeSheet();
+    tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+    if (tab === 'in' || tab === 'out') renderAttendance(tab);
+    else if (tab === 'ot') renderOT();
+    else if (tab === 'cal') renderCalendar();
+    else renderHistory();
+    if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+    window.scrollTo(0, 0);
+  }
+  tabs.forEach((b) => (b.onclick = () => go(b.dataset.tab)));
+  const fromHash = () => { const t = location.hash.slice(1); return ['in', 'out', 'ot', 'cal', 'history'].includes(t) ? t : 'in'; };
+  window.addEventListener('hashchange', () => { if (token && me && fromHash() !== current) go(fromHash()); });
+
+  function startApp() {
+    authLayout(false);
+    go(fromHash());
+  }
+
+  if (token && me) {
+    startApp();
+    // ตรวจสอบบัญชีเบื้องหลัง (ถ้าออฟไลน์ก็ยังใช้งานค้างไว้ได้)
+    api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); authLayout(false); }).catch(() => {});
+  } else {
+    renderLogin();
+  }
+
+  if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();

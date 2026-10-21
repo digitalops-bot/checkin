@@ -1,0 +1,879 @@
+// หน้าผู้ดูแล: ภาพรวม / ลงเวลา / คำขอ OT / สรุป / ตั้งค่า
+(() => {
+  const root = document.getElementById('root');
+  const modal = document.getElementById('modal');
+  const modalBody = document.getElementById('modal-body');
+  const toastEl = document.getElementById('toast');
+
+  const OT_LABEL = { '1.5': 'หลังเลิกงาน วันทำงานปกติ', '2': 'วันหยุด', '3': 'หลังเลิกงาน วันหยุด' };
+  const STATUS_TH = { pending: 'รออนุมัติ', approved: 'อนุมัติ', rejected: 'ไม่อนุมัติ' };
+  const PAIR_TH = { complete: 'ครบ', no_checkout: 'ยังไม่เช็คเอ้าท์', no_checkin: 'ไม่มีเช็คอิน' };
+  const I = {
+    home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    ot: '<path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4"/><circle cx="12" cy="12" r="3"/>',
+    sum: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    out: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+    dl: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+    cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+    flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
+    refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  };
+  const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+
+  // ---------- utils ----------
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const thDate = (iso) => {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('th-TH', { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' });
+  };
+  const thDateTime = (iso) => (iso ? new Date(iso).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+  const codeSub = (c) => (c ? `<div class="sub">รหัส ${esc(c)}</div>` : '');
+  const num = (n) => (n || n === 0 ? Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }) : '–');
+
+  let toastTimer;
+  function toast(msg, isError = false) {
+    toastEl.textContent = msg;
+    toastEl.className = 'show' + (isError ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toastEl.className = ''), 3000);
+  }
+
+  async function api(url, opts = {}) {
+    const { status, data } = await Backend.request(opts.method || (opts.body ? 'POST' : 'GET'), url, { body: opts.body, admin: true });
+    if (status === 401 && !url.includes('/login') && !url.includes('/password')) { boot(); throw new Error(data.error || 'กรุณาเข้าสู่ระบบ'); }
+    if (status < 200 || status >= 300) throw new Error(data.error || 'เกิดข้อผิดพลาด');
+    return data;
+  }
+
+  function openModal(html, cls = '') {
+    modalBody.innerHTML = html;
+    modal.querySelector('.modal-box').className = 'modal-box ' + cls;
+    modal.hidden = false;
+  }
+  const closeModal = () => { modal.hidden = true; modalBody.innerHTML = ''; };
+  modal.addEventListener('click', (e) => { if (e.target === modal || e.target.classList.contains('modal-x')) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
+
+  // ---------- filter state (ใช้ร่วมทุกหน้า) ----------
+  const now = new Date();
+  const filter = {
+    from: ymd(new Date(now.getFullYear(), now.getMonth(), 1)),
+    to: ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    q: '',
+    status: '',
+  };
+  const qs = (extra = {}) => new URLSearchParams(Object.entries({ ...filter, ...extra }).filter(([, v]) => v)).toString();
+
+  // ---------- Auth ----------
+  async function boot() {
+    const me = await Backend.request('GET', '/api/admin/me', { admin: true }).then((r) => r.data).catch(() => ({}));
+    if (me.authed) return renderShell();
+    const setup = !me.setup;
+    root.innerHTML = `
+      <div class="auth"><form class="card" id="af">
+        <img src="icon.svg" alt="">
+        <h1>${setup ? 'ตั้งรหัสผ่านผู้ดูแล' : 'เข้าสู่ระบบผู้ดูแล'}</h1>
+        <p class="muted">${setup ? 'ใช้งานครั้งแรก กรุณาตั้งรหัสผ่าน (อย่างน้อย 8 ตัวอักษร)' : 'ระบบลงเวลาทำงานพนักงานนอก'}</p>
+        <label class="field"><span>รหัสผ่าน</span><input type="password" name="pw" autocomplete="${setup ? 'new-password' : 'current-password'}" required autofocus></label>
+        ${setup ? '<label class="field"><span>ยืนยันรหัสผ่าน</span><input type="password" name="pw2" autocomplete="new-password" required></label>' : ''}
+        <button class="btn primary big" type="submit">${setup ? 'บันทึกและเข้าสู่ระบบ' : 'เข้าสู่ระบบ'}</button>
+      </form></div>`;
+    const f = document.getElementById('af');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (setup && f.pw.value !== f.pw2.value) return toast('รหัสผ่านไม่ตรงกัน', true);
+      try {
+        await api(setup ? '/api/admin/setup' : '/api/admin/login', { body: { password: f.pw.value } });
+        renderShell();
+      } catch (err) { toast(err.message, true); f.pw.select(); }
+    };
+  }
+
+  // ---------- Shell ----------
+  const PAGES = [
+    { id: 'dash', label: 'ภาพรวมวันนี้', icon: 'home' },
+    { id: 'att', label: 'ลงเวลาเข้า-ออก', icon: 'clock' },
+    { id: 'cal', label: 'ปฏิทินพนักงาน', icon: 'cal' },
+    { id: 'appeal', label: 'คำร้อง', icon: 'flag' },
+    { id: 'ot', label: 'คำขอ OT', icon: 'ot' },
+    { id: 'sum', label: 'สรุปรายคน', icon: 'sum' },
+    { id: 'emp', label: 'พนักงาน', icon: 'users' },
+    { id: 'set', label: 'ตั้งค่า', icon: 'gear' },
+  ];
+  let page = 'dash';
+  let dashTimer;
+
+  function renderShell() {
+    const initial = location.hash.slice(1);
+    if (PAGES.some((p) => p.id === initial)) page = initial;
+    root.innerHTML = `
+      <div class="shell">
+        <aside class="side">
+          <div class="brand"><img src="icon.svg" alt=""><div><b>ระบบลงเวลา</b><small>ผู้ดูแล · พนักงานนอก</small></div></div>
+          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}</button>`).join('')}
+          <div class="spacer"></div>
+          <button class="nav-btn" id="logout">${icon('out')}<span>ออกจากระบบ</span></button>
+        </aside>
+        <main class="content protect" id="content"></main>
+      </div>`;
+    root.querySelectorAll('[data-page]').forEach((b) => (b.onclick = () => go(b.dataset.page)));
+    document.getElementById('logout').onclick = async () => { await api('/api/admin/logout', { body: {} }).catch(() => {}); Backend.adminToken.set(''); boot(); };
+    go(page);
+  }
+
+  function setCount(id, n) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = !n;
+    el.textContent = n;
+  }
+  const setPending = (n) => setCount('pendingCount', n);
+  // อัปเดตตัวเลขคำขอ OT / คำร้องที่รอพิจารณาบนเมนู
+  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); }).catch(() => {});
+
+  function go(id) {
+    page = id;
+    clearInterval(dashTimer);
+    root.querySelectorAll('[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === id));
+    history.replaceState(null, '', '#' + id);
+    ({ dash: pageDash, att: pageAtt, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
+    if (id !== 'dash') refreshCounts();
+  }
+  const content = () => document.getElementById('content');
+
+  function filterBar({ status = false, exportKind = null } = {}) {
+    return `
+      <form class="card filters" id="ff">
+        <label class="field f-date"><span>ตั้งแต่วันที่</span><input type="date" name="from" value="${filter.from}"></label>
+        <label class="field f-date"><span>ถึงวันที่</span><input type="date" name="to" value="${filter.to}"></label>
+        <label class="field f-q"><span>ค้นหาชื่อ</span><input name="q" value="${esc(filter.q)}" placeholder="ชื่อพนักงาน"></label>
+        ${status ? `<label class="field f-status"><span>สถานะ</span><select name="status">
+          <option value="">ทั้งหมด</option>${Object.entries(STATUS_TH).map(([k, v]) => `<option value="${k}" ${filter.status === k ? 'selected' : ''}>${v}</option>`).join('')}
+        </select></label>` : ''}
+        <div class="quick">
+          <button type="button" class="btn ghost sm" data-range="today">วันนี้</button>
+          <button type="button" class="btn ghost sm" data-range="week">7 วัน</button>
+          <button type="button" class="btn ghost sm" data-range="month">เดือนนี้</button>
+          <button type="button" class="btn ghost sm" data-range="last">เดือนก่อน</button>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="submit">ค้นหา</button>
+          ${exportKind ? `<button type="button" class="btn ghost" id="exportBtn">${icon('dl')}ส่งออก Excel</button>` : ''}
+        </div>
+      </form>`;
+  }
+
+  function bindFilter(reload, exportKind) {
+    const f = document.getElementById('ff');
+    const apply = () => {
+      filter.from = f.from.value; filter.to = f.to.value; filter.q = f.q.value.trim();
+      if (f.status) filter.status = f.status.value;
+      if (exportKind) document.getElementById('exportBtn').onclick = () => Backend.download(`/api/admin/export/${exportKind}?${qs()}`, `${exportKind}.csv`).catch((e) => toast(e.message, true));
+    };
+    f.onsubmit = (e) => { e.preventDefault(); apply(); reload(); };
+    f.querySelectorAll('[data-range]').forEach((b) => (b.onclick = () => {
+      const d = new Date();
+      const r = b.dataset.range;
+      let from = d, to = d;
+      if (r === 'week') from = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6);
+      if (r === 'month') { from = new Date(d.getFullYear(), d.getMonth(), 1); to = new Date(d.getFullYear(), d.getMonth() + 1, 0); }
+      if (r === 'last') { from = new Date(d.getFullYear(), d.getMonth() - 1, 1); to = new Date(d.getFullYear(), d.getMonth(), 0); }
+      f.from.value = ymd(from); f.to.value = ymd(to);
+      apply(); reload();
+    }));
+    apply();
+  }
+
+  // ---------- รูปสแกน: แสดงผ่าน canvas + ลายน้ำ (คลิกขวาบันทึก/เปิดลิงก์ตรง/ดาวน์โหลดไม่ได้) ----------
+  const photoCache = new Map(); // file -> Promise<ImageBitmap>
+  function fetchPhoto(file) {
+    if (!photoCache.has(file)) {
+      const p = Backend.photo(file).then((b) => createImageBitmap(b));
+      p.catch(() => photoCache.delete(file));
+      photoCache.set(file, p);
+      if (photoCache.size > 200) photoCache.delete(photoCache.keys().next().value);
+    }
+    return photoCache.get(file);
+  }
+  function drawPhoto(canvas, bmp, fit = 'cover') {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round((canvas.clientWidth || 42) * dpr));
+    canvas.height = Math.max(1, Math.round((canvas.clientHeight || 42) * dpr));
+    const ctx = canvas.getContext('2d');
+    const s = fit === 'cover' ? Math.max(canvas.width / bmp.width, canvas.height / bmp.height) : Math.min(canvas.width / bmp.width, canvas.height / bmp.height);
+    const w = bmp.width * s;
+    const h = bmp.height * s;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+    if (canvas.width < 160) return;
+    // ลายน้ำทแยง ระบุว่าเป็นข้อมูลภายใน ห้ามเผยแพร่
+    const text = `ห้ามเผยแพร่ · ข้อมูลภายใน · ${new Date().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`;
+    const fs = Math.max(12, Math.round(canvas.width / 26));
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-Math.PI / 6);
+    ctx.font = `600 ${fs}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,.2)';
+    ctx.textAlign = 'center';
+    const span = Math.hypot(canvas.width, canvas.height);
+    for (let y = -span / 2; y < span / 2; y += fs * 5) {
+      for (let x = -span / 2; x < span / 2; x += ctx.measureText(text).width + fs * 3) ctx.fillText(text, x, y);
+    }
+    ctx.restore();
+  }
+  function hydratePhotos(scope) {
+    scope.querySelectorAll('canvas[data-photo]:not([data-ready])').forEach(async (cv) => {
+      cv.dataset.ready = '1';
+      try { drawPhoto(cv, await fetchPhoto(cv.dataset.photo), cv.dataset.fit || 'cover'); } catch { cv.classList.add('broken'); }
+    });
+  }
+  async function showPhoto(file) {
+    openModal('<div class="empty" style="color:#fff">กำลังโหลดรูป…</div>', 'img-only protect');
+    try {
+      const bmp = await fetchPhoto(file);
+      const s = Math.min((innerWidth * 0.92) / bmp.width, (innerHeight * 0.86) / bmp.height, 1.5);
+      modalBody.innerHTML = `<canvas class="big-photo" style="width:${Math.round(bmp.width * s)}px;height:${Math.round(bmp.height * s)}px"></canvas>`;
+      drawPhoto(modalBody.querySelector('canvas'), bmp, 'contain');
+    } catch { modalBody.innerHTML = '<div class="empty" style="color:#fff">โหลดรูปไม่ได้</div>'; }
+  }
+
+  // ---------- ข้อสังเกตจากระบบกันโกง ----------
+  const FLAG_TH = {
+    outside_area: 'นอกพื้นที่ทำงาน',
+    location_unverified: 'ยืนยันพื้นที่ไม่ได้ (ยังไม่ตั้งพิกัดสถานที่)',
+    no_face_check: 'ตรวจใบหน้าไม่ได้',
+    low_face_ratio: 'ตรวจพบใบหน้าไม่สม่ำเสมอ',
+    low_gps_accuracy: 'GPS คลาดเคลื่อนสูง',
+    gps_stale: 'พิกัด GPS ไม่เป็นปัจจุบัน',
+    gps_suspicious: 'พิกัดผิดปกติ (อาจใช้แอปปลอมตำแหน่ง)',
+    desktop_device: 'ลงเวลาจากคอมพิวเตอร์',
+    overnight: 'เช็คเอ้าท์ข้ามวัน',
+    gps_static: 'สงสัยปลอมตำแหน่ง: พิกัดนิ่งสนิทผิดธรรมชาติ',
+    gps_jump: 'สงสัยปลอมตำแหน่ง: พิกัดกระโดดระหว่างสแกน',
+    gps_teleport: 'สงสัยปลอมตำแหน่ง: ย้ายที่เร็วเกินจริงจากครั้งก่อน',
+    gps_shared: 'สงสัยปลอมตำแหน่ง: พิกัดซ้ำกับพนักงานคนอื่น',
+  };
+  const INFO_FLAGS = new Set(['overnight']);
+  const flagsOf = (r) => { try { return JSON.parse(r?.flags || '[]'); } catch { return []; } };
+  const warnsOf = (r) => flagsOf(r).filter((f) => !INFO_FLAGS.has(f));
+  const timeOf = (r) => (r.captured_at ? new Date(r.captured_at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false }) : r.time);
+
+  // ---------- attendance table ----------
+  let pairCache = [];
+  function attCell(rec) {
+    if (!rec) return '<div class="tcell"><span class="thumb none">–</span><span class="muted">ไม่มี</span></div>';
+    const w = warnsOf(rec);
+    // บน Google ไม่โหลดรูปเต็มทุกแถว (ช้า/กินโควตา) — ดูรูปได้เมื่อคลิกแถว
+    const pic = rec.thumb ? `<img class="thumb" src="${esc(rec.thumb)}" alt="" draggable="false">`
+      : Backend.mode === 'gas' ? '<span class="thumb none" title="คลิกแถวเพื่อดูรูป">📷</span>'
+        : `<canvas class="thumb" data-photo="${esc(rec.photo)}"></canvas>`;
+    return `<div class="tcell">${pic}
+      <div><div class="t-time">${esc(timeOf(rec))} น.</div>
+      ${w.length ? `<span class="badge flag" title="${esc(w.map((f) => FLAG_TH[f] || f).join(', '))}">⚠ ตรวจสอบ ${w.length}</span>` : rec.verify_code ? '<span class="badge approved">✓ ผ่าน</span>' : '<div class="sub">ข้อมูลเดิม</div>'}
+      </div></div>`;
+  }
+  function attTable(pairs, { showDate = true } = {}) {
+    pairCache = pairs;
+    if (!pairs.length) return '<div class="card empty">ไม่มีข้อมูลการลงเวลาในช่วงนี้</div>';
+    const totalHours = pairs.reduce((s, p) => s + (p.hours || 0), 0);
+    return `
+      <div class="card table-card protect"><div class="table-wrap"><table>
+        <thead><tr>${showDate ? '<th>วันที่</th>' : ''}<th>ชื่อ</th><th>สถานที่</th><th>เข้างาน</th><th>เลิกงาน</th><th class="num">ชั่วโมง</th><th>สถานะ</th></tr></thead>
+        <tbody>${pairs.map((p, i) => {
+          const locIn = p.checkin?.location, locOut = p.checkout?.location;
+          const loc = locIn && locOut && locIn !== locOut ? `${esc(locIn)}<div class="sub">ออก: ${esc(locOut)}</div>` : esc(locIn || locOut);
+          return `<tr class="click" data-i="${i}">
+            ${showDate ? `<td class="nowrap">${esc(thDate(p.work_date))}</td>` : ''}
+            <td><b>${esc(p.name)}</b>${codeSub(p.emp_code)}${p.records.length > 2 ? `<div class="sub">${p.records.length} รายการ</div>` : ''}</td>
+            <td>${loc}</td>
+            <td>${attCell(p.checkin)}</td>
+            <td>${attCell(p.checkout)}</td>
+            <td class="num">${num(p.hours)}</td>
+            <td><span class="badge ${p.status}">${PAIR_TH[p.status]}</span></td></tr>`;
+        }).join('')}</tbody></table></div>
+        <div class="table-foot"><span>${pairs.length} รายการ</span><span>รวม ${num(totalHours)} ชั่วโมง</span></div>
+      </div>`;
+  }
+  function bindAttTable(container, reload) {
+    container.querySelectorAll('tr[data-i]').forEach((tr) => (tr.onclick = () => attDetail(pairCache[tr.dataset.i], reload)));
+    hydratePhotos(container);
+  }
+
+  function attDetail(p, reload) {
+    const col = (rec, title, cls) => {
+      if (!rec) return `<div class="detail-col"><span class="badge ${cls}">${title}</span><p class="muted">ไม่มีข้อมูล</p></div>`;
+      const map = rec.lat != null
+        ? `${rec.lat.toFixed(6)}, ${rec.lng.toFixed(6)} <span class="sub">(±${Math.round(rec.accuracy || 0)} ม.)</span><br><a href="https://www.google.com/maps?q=${rec.lat},${rec.lng}" target="_blank" rel="noopener noreferrer">เปิดแผนที่</a>`
+        : '<span class="muted">ไม่มี</span>';
+      const flags = flagsOf(rec);
+      return `<div class="detail-col">
+        <span class="badge ${cls}">${title}</span>
+        <dl><dt>เวลาจริง</dt><dd><b>${esc(rec.captured_at ? new Date(rec.captured_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : rec.time + ' น.')}</b></dd>
+        <dt>สถานที่</dt><dd>${esc(rec.location)}${rec.site_distance != null ? ` <span class="sub">(ห่างจุดทำงาน ${num(rec.site_distance)} ม.)</span>` : ''}</dd>
+        <dt>พิกัด</dt><dd>${map}</dd>
+        ${rec.verify_code ? `<dt>รหัสตรวจสอบ</dt><dd><b class="mono">${esc(rec.verify_code)}</b> <span class="sub">ต้องตรงกับในรูป</span></dd>` : ''}
+        ${rec.face_ratio != null ? `<dt>ตรวจใบหน้า</dt><dd>พบใบหน้า ${Math.round(rec.face_ratio * 100)}% ของเวลาสแกน</dd>` : ''}
+        <dt>ข้อสังเกต</dt><dd>${flags.length ? flags.map((f) => `<span class="badge ${INFO_FLAGS.has(f) ? 'pending' : 'flag'}">${esc(FLAG_TH[f] || f)}</span>`).join(' ') : rec.verify_code ? '<span class="badge approved">ไม่พบความผิดปกติ</span>' : '<span class="muted">ข้อมูลก่อนมีระบบสแกน</span>'}</dd>
+        ${rec.ip ? `<dt>IP</dt><dd class="mono">${esc(rec.ip)}</dd>` : ''}
+        ${rec.device ? `<dt>อุปกรณ์</dt><dd class="sub">${esc(rec.device)}</dd>` : ''}</dl>
+        <canvas class="detail-photo" data-photo="${esc(rec.photo)}" data-fit="contain" data-open="${esc(rec.photo)}"></canvas>
+      </div>`;
+    };
+    const extras = p.records.filter((r) => r !== p.checkin && r !== p.checkout);
+    openModal(`
+      <h2 style="margin:0 40px 2px 0">${esc(p.name)}</h2>${codeSub(p.emp_code)}
+      <div class="muted">${esc(thDate(p.work_date))} · ${p.hours != null ? `ทำงาน ${num(p.hours)} ชั่วโมง` : PAIR_TH[p.status]}</div>
+      <div class="detail-grid">${col(p.checkin, 'เช็คอิน', 'in')}${col(p.checkout, 'เช็คเอ้าท์', 'out')}</div>
+      <div class="extra-list">
+        <b>รายการทั้งหมดของวันนี้ (${p.records.length})</b>
+        <div class="table-wrap"><table><tbody>${p.records.map((r) => `
+          <tr><td><span class="badge ${r.type}">${r.type === 'in' ? 'เช็คอิน' : 'เช็คเอ้าท์'}</span></td><td>${esc(timeOf(r))} น.</td><td>${esc(r.location)}</td>
+          <td><a href="#" data-open="${esc(r.photo)}">ดูรูป</a></td>
+          <td class="act"><button class="btn danger sm" data-del="${r.id}">ลบ</button></td></tr>`).join('')}</tbody></table></div>
+        ${extras.length ? `<p class="sub">มีรายการซ้ำ ${extras.length} รายการ — ระบบใช้เวลาเข้าเร็วสุดและเวลาออกช้าสุด</p>` : ''}
+      </div>`, 'protect');
+    hydratePhotos(modalBody);
+    modalBody.querySelectorAll('[data-open]').forEach((el) => (el.onclick = (e) => { e.preventDefault(); showPhoto(el.dataset.open); }));
+    modalBody.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
+      if (!confirm('ลบรายการนี้และรูปถ่าย? ไม่สามารถกู้คืนได้')) return;
+      try { await api(`/api/admin/attendance/${b.dataset.del}`, { method: 'DELETE' }); toast('ลบแล้ว'); closeModal(); reload(); }
+      catch (err) { toast(err.message, true); }
+    }));
+  }
+
+  // ---------- Pages ----------
+  async function pageDash() {
+    const c = content();
+    const load = async () => {
+      try {
+        const d = await api('/api/admin/dashboard');
+        if (page !== 'dash') return;
+        setPending(d.pending);
+        setCount('appealCount', d.appeals);
+        const checkedIn = d.pairs.filter((p) => p.checkin).length;
+        const noOut = d.pairs.filter((p) => p.status === 'no_checkout').length;
+        const done = d.pairs.filter((p) => p.status === 'complete').length;
+        c.innerHTML = `
+          <div class="page-head"><div><h1>ภาพรวมวันนี้</h1><p>${esc(thDate(d.today))} · อัปเดตอัตโนมัติทุก 1 นาที</p></div>
+            <button class="btn ghost" id="rf">${icon('refresh')}รีเฟรช</button></div>
+          <div class="stats">
+            <div class="card stat in"><div class="k">เช็คอินแล้ว</div><div class="v">${checkedIn}</div></div>
+            <div class="card stat out"><div class="k">ยังไม่เช็คเอ้าท์</div><div class="v">${noOut}</div></div>
+            <div class="card stat"><div class="k">ลงเวลาครบ</div><div class="v">${done}</div></div>
+            <div class="card stat ot"><div class="k">OT รออนุมัติ</div><div class="v">${d.pending}</div></div>
+            <div class="card stat flagged"><div class="k">ต้องตรวจสอบ (กันโกง)</div><div class="v">${d.flagged || 0}</div></div>
+            <div class="card stat out"><div class="k">คำร้องรอพิจารณา</div><div class="v">${d.appeals || 0}</div></div>
+          </div>
+          <h2 class="section-title">การลงเวลาวันนี้</h2>
+          <div id="tbl">${attTable(d.pairs, { showDate: false })}</div>`;
+        document.getElementById('rf').onclick = load;
+        bindAttTable(c, load);
+      } catch (err) { toast(err.message, true); }
+    };
+    c.innerHTML = '<div class="empty">กำลังโหลด…</div>';
+    await load();
+    dashTimer = setInterval(() => { if (modal.hidden) load(); }, 60000);
+  }
+
+  function pageAtt() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>ลงเวลาเข้า-ออก</h1><p>คลิกแถวเพื่อดูรูปและรายละเอียด</p></div></div>
+      ${filterBar({ exportKind: 'attendance' })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+    const load = async () => {
+      try {
+        const { pairs } = await api(`/api/admin/attendance?${qs({ status: '' })}`);
+        const t = document.getElementById('tbl');
+        if (!t) return;
+        t.innerHTML = attTable(pairs);
+        bindAttTable(t, load);
+      } catch (err) { toast(err.message, true); }
+    };
+    bindFilter(load, 'attendance');
+    load();
+  }
+
+  function pageOT() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>คำขอ OT</h1><p>อนุมัติหรือไม่อนุมัติคำขอทำโอที</p></div></div>
+      ${filterBar({ status: true, exportKind: 'ot' })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+    const load = async () => {
+      try {
+        const { items } = await api(`/api/admin/ot?${qs()}`);
+        api('/api/admin/dashboard').then((d) => setPending(d.pending)).catch(() => {});
+        const t = document.getElementById('tbl');
+        if (!t) return;
+        if (!items.length) { t.innerHTML = '<div class="card empty">ไม่มีคำขอ OT ในช่วงนี้</div>'; return; }
+        const sumBy = (st) => items.filter((o) => o.status === st).reduce((s, o) => s + o.hours, 0);
+        t.innerHTML = `
+          <div class="card table-card"><div class="table-wrap"><table>
+            <thead><tr><th><input type="checkbox" id="all" aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>ชื่อ</th><th>ประเภท</th><th>เวลา</th><th class="num">ชั่วโมง</th><th>รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+            <tbody>${items.map((o) => `
+              <tr>
+                <td><input type="checkbox" class="sel" value="${o.id}" aria-label="เลือก"></td>
+                <td class="nowrap">${esc(thDate(o.ot_date))}<div class="sub">ส่ง ${esc(thDateTime(o.created_at))}</div></td>
+                <td><b>${esc(o.name)}</b>${codeSub(o.emp_code)}</td>
+                <td><span class="badge ot">OT ${esc(o.ot_type)}</span><div class="sub">${OT_LABEL[o.ot_type]}</div></td>
+                <td class="nowrap t-time">${esc(o.start_time)}–${esc(o.end_time)}</td>
+                <td class="num">${num(o.hours)}</td>
+                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub">ผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</td>
+                <td><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></td>
+                <td><div class="act">
+                  ${o.status !== 'approved' ? `<button class="btn ok sm" data-st="approved" data-id="${o.id}">อนุมัติ</button>` : ''}
+                  ${o.status !== 'rejected' ? `<button class="btn danger sm" data-st="rejected" data-id="${o.id}">ไม่อนุมัติ</button>` : ''}
+                  ${o.status !== 'pending' ? `<button class="btn ghost sm" data-st="pending" data-id="${o.id}">รีเซ็ต</button>` : ''}
+                  <button class="btn ghost sm" data-delot="${o.id}" title="ลบ">ลบ</button>
+                </div></td>
+              </tr>`).join('')}</tbody></table></div>
+            <div class="table-foot">
+              <span>${items.length} รายการ · อนุมัติแล้ว ${num(sumBy('approved'))} ชม. · รออนุมัติ ${num(sumBy('pending'))} ชม.</span>
+              <span class="act"><button class="btn ok sm" id="bulkOk" disabled>อนุมัติที่เลือก</button><button class="btn danger sm" id="bulkNo" disabled>ไม่อนุมัติที่เลือก</button></span>
+            </div></div>`;
+        const sels = [...t.querySelectorAll('.sel')];
+        const updBulk = () => { const n = sels.filter((s) => s.checked).length; t.querySelector('#bulkOk').disabled = t.querySelector('#bulkNo').disabled = !n; };
+        t.querySelector('#all').onchange = (e) => { sels.forEach((s) => (s.checked = e.target.checked)); updBulk(); };
+        sels.forEach((s) => (s.onchange = updBulk));
+        const bulk = async (status) => {
+          const ids = sels.filter((s) => s.checked).map((s) => Number(s.value));
+          try { await api('/api/admin/ot/bulk', { body: { ids, status } }); toast(`อัปเดต ${ids.length} รายการ`); load(); } catch (err) { toast(err.message, true); }
+        };
+        t.querySelector('#bulkOk').onclick = () => bulk('approved');
+        t.querySelector('#bulkNo').onclick = () => bulk('rejected');
+        t.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => {
+          let review_note = '';
+          if (b.dataset.st === 'rejected') {
+            review_note = prompt('เหตุผลที่ไม่อนุมัติ (ไม่บังคับ)', '');
+            if (review_note === null) return;
+          }
+          try { await api(`/api/admin/ot/${b.dataset.id}`, { method: 'PATCH', body: { status: b.dataset.st, review_note } }); toast('บันทึกแล้ว'); load(); }
+          catch (err) { toast(err.message, true); }
+        }));
+        t.querySelectorAll('[data-delot]').forEach((b) => (b.onclick = async () => {
+          if (!confirm('ลบคำขอ OT นี้? ไม่สามารถกู้คืนได้')) return;
+          try { await api(`/api/admin/ot/${b.dataset.delot}`, { method: 'DELETE' }); toast('ลบแล้ว'); load(); } catch (err) { toast(err.message, true); }
+        }));
+      } catch (err) { toast(err.message, true); }
+    };
+    bindFilter(load, 'ot');
+    load();
+  }
+
+  function pageSum() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>สรุปรายคน</h1><p>นับเฉพาะ OT ที่อนุมัติแล้ว · ใช้ทำเงินเดือน/ค่าแรง</p></div></div>
+      ${filterBar({ exportKind: 'summary' })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+    const load = async () => {
+      try {
+        const { rows } = await api(`/api/admin/summary?${qs({ status: '' })}`);
+        const t = document.getElementById('tbl');
+        if (!t) return;
+        if (!rows.length) { t.innerHTML = '<div class="card empty">ไม่มีข้อมูลในช่วงนี้</div>'; return; }
+        const tot = (f) => rows.reduce((s, r) => s + f(r), 0);
+        t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
+          <thead><tr><th>ชื่อ</th><th class="num">วันทำงาน</th><th class="num">ชั่วโมงทำงาน</th><th class="num">มาสาย (วัน)</th><th class="num">สีแดง (วัน)</th><th class="num">อนุมัติคำร้อง</th><th class="num">OT 1.5 (ชม.)</th><th class="num">OT 2 (ชม.)</th><th class="num">OT 3 (ชม.)</th><th class="num">OT รออนุมัติ</th></tr></thead>
+          <tbody>${rows.map((r) => `<tr>
+            <td><b>${esc(r.name)}</b>${codeSub(r.emp_code)}</td><td class="num">${r.days}</td><td class="num">${num(r.hours)}</td>
+            <td class="num">${r.late_days ? `<span class="badge no_checkout">${r.late_days}</span>` : (r.late_days ?? '–')}</td>
+            <td class="num">${r.red_days ? `<span class="badge rejected">${r.red_days}</span>` : (r.red_days ?? '–')}</td>
+            <td class="num">${r.excused_days ?? '–'}</td>
+            <td class="num">${num(r.ot['1.5'])}</td><td class="num">${num(r.ot['2'])}</td><td class="num">${num(r.ot['3'])}</td>
+            <td class="num">${r.ot_pending ? `<span class="badge pending">${r.ot_pending}</span>` : '0'}</td></tr>`).join('')}
+          <tr style="background:var(--surface-2);font-weight:700"><td>รวม ${rows.length} คน</td><td class="num">${tot((r) => r.days)}</td><td class="num">${num(tot((r) => r.hours))}</td>
+            <td class="num">${tot((r) => r.late_days || 0)}</td><td class="num">${tot((r) => r.red_days || 0)}</td><td class="num">${tot((r) => r.excused_days || 0)}</td><td class="num">${num(tot((r) => r.ot['1.5']))}</td><td class="num">${num(tot((r) => r.ot['2']))}</td>
+            <td class="num">${num(tot((r) => r.ot['3']))}</td><td class="num">${tot((r) => r.ot_pending)}</td></tr>
+          </tbody></table></div></div>`;
+      } catch (err) { toast(err.message, true); }
+    };
+    bindFilter(load, 'summary');
+    load();
+  }
+
+  function pageEmp() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>พนักงาน</h1><p>พนักงานที่ลงทะเบียนผ่านแอป · ปิดใช้งานเพื่อไม่ให้เข้าระบบได้อีก</p></div></div>
+      <form class="card filters" id="ef">
+        <label class="field f-q" style="flex:1;max-width:340px"><span>ค้นหา</span><input name="q" placeholder="รหัส ชื่อ หรือเบอร์โทร"></label>
+        <div class="actions"><button class="btn primary" type="submit">ค้นหา</button>
+          <button type="button" class="btn ghost" id="expEmp">${icon('dl')}ส่งออก Excel</button></div>
+      </form><div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+    const ef = document.getElementById('ef');
+    const load = async () => {
+      const q = ef.q.value.trim();
+      document.getElementById('expEmp').onclick = () => Backend.download(`/api/admin/export/employees?${new URLSearchParams(q ? { q } : {})}`, 'employees.csv').catch((e) => toast(e.message, true));
+      try {
+        const { items } = await api(`/api/admin/employees?${new URLSearchParams(q ? { q } : {})}`);
+        const t = document.getElementById('tbl');
+        if (!t) return;
+        if (!items.length) { t.innerHTML = '<div class="card empty">ยังไม่มีพนักงานลงทะเบียน</div>'; return; }
+        t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
+          <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>ลงทะเบียนเมื่อ</th><th>ใช้งานล่าสุด</th><th class="num">อุปกรณ์</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+          <tbody>${items.map((e) => `<tr>
+            <td class="t-time">${esc(e.emp_code)}</td>
+            <td><b>${esc(e.title + e.first_name + ' ' + e.last_name)}</b></td>
+            <td class="nowrap">${esc(e.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'))}</td>
+            <td class="nowrap">${esc(thDateTime(e.created_at))}</td>
+            <td class="nowrap">${e.last_seen_at ? esc(thDateTime(e.last_seen_at)) : '<span class="muted">–</span>'}</td>
+            <td class="num">${e.devices}</td>
+            <td><span class="badge ${e.active ? 'approved' : 'rejected'}">${e.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</span></td>
+            <td><div class="act">
+              <button class="btn ghost sm" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสใหม่</button>
+              <button class="btn ghost sm" data-phone="${e.id}" data-cur="${esc(e.phone)}">แก้เบอร์</button>
+              <button class="btn ${e.active ? 'danger' : 'ok'} sm" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+            </div></td></tr>`).join('')}</tbody></table></div>
+          <div class="table-foot"><span>${items.length} คน</span></div></div>`;
+        const patch = async (id, body, msg) => {
+          try { await api(`/api/admin/employees/${id}`, { method: 'PATCH', body }); toast(msg); load(); } catch (err) { toast(err.message, true); }
+        };
+        t.querySelectorAll('[data-active]').forEach((b) => (b.onclick = () => {
+          const on = b.dataset.to === '1';
+          if (!on && !confirm('ปิดใช้งานพนักงานคนนี้? เครื่องที่ล็อกอินไว้จะถูกออกจากระบบ')) return;
+          patch(b.dataset.active, { active: on }, on ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว');
+        }));
+        t.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = () => {
+          const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ ${b.dataset.name} (อย่างน้อย 6 ตัว)\nพนักงานต้องเข้าสู่ระบบใหม่ด้วยรหัสนี้`);
+          if (pw === null) return;
+          if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว', true);
+          patch(b.dataset.pw, { password: pw }, 'ตั้งรหัสผ่านใหม่แล้ว');
+        }));
+        t.querySelectorAll('[data-phone]').forEach((b) => (b.onclick = () => {
+          const ph = prompt('เบอร์โทรใหม่ (10 หลัก ขึ้นต้นด้วย 0)', b.dataset.cur);
+          if (ph === null) return;
+          patch(b.dataset.phone, { phone: ph }, 'แก้เบอร์โทรแล้ว');
+        }));
+      } catch (err) { toast(err.message, true); }
+    };
+    ef.onsubmit = (e) => { e.preventDefault(); load(); };
+    load();
+  }
+
+  // ---------- ปฏิทินพนักงาน ----------
+  const DAY_STATUS = {
+    ok: 'ปกติ', problem: 'ไม่ถูกต้อง', absent: 'ไม่มีการสแกน', no_checkin: 'ไม่มีสแกนเข้า', no_checkout: 'ไม่มีสแกนออก',
+    holiday: 'วันหยุด', holiday_work: 'ทำงานวันหยุด', working: 'กำลังทำงาน', pending: 'ยังไม่สแกน', future: '', none: '',
+  };
+  const APPEAL_TH = { pending: 'รอพิจารณา', approved: 'อนุมัติ', rejected: 'ไม่อนุมัติ' };
+  const WEEK_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+  const thisMonth = () => ymd(new Date()).slice(0, 7);
+  const calState = { employee_id: '', month: thisMonth() };
+
+  async function decideAppeal(id, status, after) {
+    let review_note = '';
+    if (status === 'rejected') {
+      review_note = prompt('เหตุผลที่ไม่อนุมัติ (พนักงานจะเห็นข้อความนี้)', '');
+      if (review_note === null) return;
+    }
+    try {
+      await api(`/api/admin/appeals/${id}`, { method: 'PATCH', body: { status, review_note } });
+      toast(status === 'approved' ? 'อนุมัติคำร้องแล้ว' : status === 'rejected' ? 'ไม่อนุมัติคำร้องแล้ว' : 'บันทึกแล้ว');
+      refreshCounts();
+      after();
+    } catch (err) { toast(err.message, true); }
+  }
+
+  async function pageCal() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>ปฏิทินพนักงาน</h1><p>สีรายวันตามตารางกะ · คลิกวันที่เพื่อดูรายละเอียด รูปสแกน และคำร้อง</p></div></div>
+      <form class="card filters" id="cf">
+        <label class="field" style="flex:1;min-width:220px;max-width:380px"><span>พนักงาน</span><select name="emp"><option value="">กำลังโหลด…</option></select></label>
+        <label class="field f-date"><span>เดือน</span><input type="month" name="month" value="${calState.month}"></label>
+        <div class="quick"><button type="button" class="btn ghost sm" id="mPrev">‹ เดือนก่อน</button><button type="button" class="btn ghost sm" id="mNext">เดือนถัดไป ›</button></div>
+      </form><div id="calOut"><div class="card empty">เลือกพนักงานเพื่อดูปฏิทิน</div></div>`;
+    const f = document.getElementById('cf');
+    try {
+      const { items } = await api('/api/admin/employees');
+      f.emp.innerHTML = `<option value="">— เลือกพนักงาน (${items.length} คน) —</option>` + items.map((e) => `<option value="${e.id}" ${String(e.id) === String(calState.employee_id) ? 'selected' : ''}>${esc(e.emp_code)} · ${esc(e.title + e.first_name + ' ' + e.last_name)}${e.active ? '' : ' (ปิดใช้งาน)'}</option>`).join('');
+    } catch (err) { toast(err.message, true); }
+    const load = async () => {
+      calState.employee_id = f.emp.value;
+      calState.month = f.month.value || thisMonth();
+      const out = document.getElementById('calOut');
+      if (!calState.employee_id) { out.innerHTML = '<div class="card empty">เลือกพนักงานเพื่อดูปฏิทิน</div>'; return; }
+      out.innerHTML = '<div class="card empty">กำลังโหลด…</div>';
+      try {
+        const data = await api(`/api/admin/calendar?employee_id=${calState.employee_id}&month=${calState.month}`);
+        drawAdminCal(out, data, load);
+      } catch (err) { out.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; }
+    };
+    const shiftMonth = (n) => { const [y, m] = (f.month.value || thisMonth()).split('-').map(Number); f.month.value = ymd(new Date(y, m - 1 + n, 1)).slice(0, 7); load(); };
+    f.emp.onchange = load;
+    f.month.onchange = load;
+    document.getElementById('mPrev').onclick = () => shiftMonth(-1);
+    document.getElementById('mNext').onclick = () => shiftMonth(1);
+    f.onsubmit = (e) => { e.preventDefault(); load(); };
+    load();
+  }
+
+  function drawAdminCal(out, data, reload) {
+    const { days, summary: s, schedule, employee } = data;
+    const lead = new Date(`${days[0].date}T12:00:00Z`).getUTCDay();
+    const today = ymd(new Date());
+    out.innerHTML = `
+      <div class="stats">
+        <div class="card stat"><div class="k">วันทำงาน</div><div class="v">${s.work}</div></div>
+        <div class="card stat in"><div class="k">ปกติ (เขียว)</div><div class="v">${s.ok}</div></div>
+        <div class="card stat flagged"><div class="k">ไม่ถูกต้อง (แดง)</div><div class="v">${s.red}</div></div>
+        <div class="card stat out"><div class="k">มาสาย</div><div class="v">${s.late}</div></div>
+        <div class="card stat ot"><div class="k">OT คำนวณ (ชม.)</div><div class="v">${num(s.ot['1.5'] + s.ot['2'] + s.ot['3'])}</div></div>
+      </div>
+      <div class="card acal">
+        <div class="acal-title"><b>${esc(employee.name)}</b> <span class="muted">รหัส ${esc(employee.emp_code)} · เริ่มใช้ระบบ ${esc(thDate(data.start_date))}</span></div>
+        <div class="acal-grid acal-week">${WEEK_TH.map((w, i) => `<span class="${schedule.weekly_off.includes(i) ? 'off' : ''}">${w}</span>`).join('')}</div>
+        <div class="acal-grid">${'<span></span>'.repeat(lead)}${days.map((d, i) => `
+          <button class="acal-day c-${d.color}${d.date === today ? ' today' : ''}" data-i="${i}">
+            <span class="n">${Number(d.date.slice(8))}</span>
+            <span class="st">${esc(d.color === 'excused' ? 'อนุมัติคำร้อง' : d.holiday_name && !d.checkin ? d.holiday_name : DAY_STATUS[d.status] || '')}</span>
+            ${d.checkin || d.checkout ? `<span class="tm">${esc(d.checkin || '--:--')} → ${esc(d.checkout || '--:--')}</span>` : ''}
+            ${d.ot['1.5'] + d.ot['2'] + d.ot['3'] ? `<span class="tm">OT ${num(d.ot['1.5'] + d.ot['2'] + d.ot['3'])} ชม.</span>` : ''}
+            ${d.appeal ? `<span class="ap ${d.appeal.status}">คำร้อง${APPEAL_TH[d.appeal.status]}</span>` : ''}
+          </button>`).join('')}</div>
+        <div class="cal-legend">
+          <span><i class="c-green"></i>ปกติ</span><span><i class="c-red"></i>ไม่ถูกต้อง / ลืมสแกน / สาย / ออกก่อน</span><span><i class="c-gray"></i>วันหยุด</span>
+          <span><i class="c-purple"></i>ทำงานวันหยุด</span><span><i class="c-excused"></i>อนุมัติคำร้อง</span><span><i class="c-blue"></i>วันนี้ / กำลังทำงาน</span>
+        </div>
+      </div>`;
+    out.querySelectorAll('.acal-day').forEach((b) => (b.onclick = () => adminDay(days[b.dataset.i], employee, reload)));
+  }
+
+  function adminDay(d, employee, reload) {
+    const ins = d.records.filter((r) => r.type === 'in').sort((a, b) => (a.captured_at || a.time).localeCompare(b.captured_at || b.time));
+    const outs = d.records.filter((r) => r.type === 'out').sort((a, b) => (b.captured_at || b.time).localeCompare(a.captured_at || a.time));
+    openModal(`
+      <h2 style="margin:0 40px 4px 0">${esc(thDate(d.date))}${d.holiday_name ? ` <span class="badge">${esc(d.holiday_name)}</span>` : ''}</h2>
+      <div class="muted">${esc(employee.name)} · รหัส ${esc(employee.emp_code)}</div>
+      <div class="day-summary">
+        <span class="badge day-${d.color}">${esc(d.color === 'excused' ? 'อนุมัติคำร้องแล้ว' : DAY_STATUS[d.status] || '–')}</span>
+        ${d.shift ? `<span>${esc(d.shift.name)} ${esc(d.shift.start)}–${esc(d.shift.end)} น.</span>` : ''}
+        <span>เข้า <b>${esc(d.checkin || '—')}</b> · ออก <b>${esc(d.checkout || '—')}</b>${d.worked_hours != null ? ` · ${num(d.worked_hours)} ชม.` : ''}</span>
+      </div>
+      ${d.issues.length ? `<div class="issue-box"><b>สาเหตุสีแดง:</b> ${d.issues.map((i) => esc(i.text)).join(', ')}</div>` : ''}
+      ${d.ot_detail.length ? `<div class="ot-box"><b>OT คำนวณจากเวลาสแกน:</b> ${d.ot_detail.map((o) => `OT ${esc(o.type)} ${esc(o.start)}–${esc(o.end)} = ${num(o.hours)} ชม.`).join(', ')} <span class="sub">(สร้างเป็นคำขอ OT ให้อนุมัติแล้ว)</span></div>` : ''}
+      ${d.appeal ? `<div class="appeal-box"><b>คำร้อง (${esc(APPEAL_TH[d.appeal.status])}):</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>
+        ${d.appeal.review_note ? `<div class="sub">หมายเหตุผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}
+        <div class="act" style="justify-content:flex-start;margin-top:8px">
+          ${d.appeal.status !== 'approved' ? `<button class="btn ok sm" data-ap="approved">อนุมัติคำร้อง</button>` : ''}
+          ${d.appeal.status !== 'rejected' ? `<button class="btn danger sm" data-ap="rejected">ไม่อนุมัติ</button>` : ''}
+        </div></div>` : ''}
+      ${d.records.length ? `<button class="btn primary" id="seeScan">ดูรูปและรายละเอียดการสแกน</button>` : '<p class="muted">ไม่มีการสแกนในวันนี้</p>'}`);
+    modalBody.querySelectorAll('[data-ap]').forEach((b) => (b.onclick = () => decideAppeal(d.appeal.id, b.dataset.ap, () => { closeModal(); reload(); })));
+    const see = document.getElementById('seeScan');
+    if (see) see.onclick = () => attDetail({
+      name: employee.name, emp_code: employee.emp_code, work_date: d.date, records: d.records,
+      checkin: ins[0] || null, checkout: outs[0] || null, hours: d.worked_hours,
+      status: ins[0] && outs[0] ? 'complete' : ins[0] ? 'no_checkout' : 'no_checkin',
+    }, reload);
+  }
+
+  // ---------- คำร้อง ----------
+  function pageAppeal() {
+    const c = content();
+    if (!filter.status) filter.status = 'pending';
+    c.innerHTML = `<div class="page-head"><div><h1>คำร้อง</h1><p>คำร้องจากพนักงานสำหรับวันที่เป็นสีแดง · อนุมัติแล้ววันนั้นจะเปลี่ยนเป็นสี "อนุมัติคำร้อง"</p></div></div>
+      ${filterBar({ status: true })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+    const load = async () => {
+      try {
+        const { items } = await api(`/api/admin/appeals?${qs()}`);
+        const t = document.getElementById('tbl');
+        if (!t) return;
+        if (!items.length) { t.innerHTML = '<div class="card empty">ไม่มีคำร้องในช่วงนี้</div>'; return; }
+        t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
+          <thead><tr><th>วันที่</th><th>ชื่อ</th><th>ปัญหาของวันนั้น</th><th>เหตุผล / รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+          <tbody>${items.map((a) => `<tr>
+            <td class="nowrap">${esc(thDate(a.work_date))}<div class="sub">ส่ง ${esc(thDateTime(a.created_at))}</div></td>
+            <td><b>${esc(a.name)}</b>${codeSub(a.emp_code)}</td>
+            <td><span class="sub" style="color:var(--bad)">${esc(a.issues || '-')}</span></td>
+            <td><b>${esc(a.reason)}</b><div>${esc(a.note)}</div>${a.review_note ? `<div class="sub">ผู้ดูแล: ${esc(a.review_note)}</div>` : ''}</td>
+            <td><span class="badge ${a.status}">${APPEAL_TH[a.status]}</span></td>
+            <td><div class="act">
+              ${a.status !== 'approved' ? `<button class="btn ok sm" data-id="${a.id}" data-st="approved">อนุมัติ</button>` : ''}
+              ${a.status !== 'rejected' ? `<button class="btn danger sm" data-id="${a.id}" data-st="rejected">ไม่อนุมัติ</button>` : ''}
+              <button class="btn ghost sm" data-cal="${a.employee_id}" data-month="${esc(a.work_date.slice(0, 7))}">ดูปฏิทิน</button>
+            </div></td></tr>`).join('')}</tbody></table></div>
+          <div class="table-foot"><span>${items.length} รายการ</span></div></div>`;
+        t.querySelectorAll('[data-st]').forEach((b) => (b.onclick = () => decideAppeal(b.dataset.id, b.dataset.st, load)));
+        t.querySelectorAll('[data-cal]').forEach((b) => (b.onclick = () => { calState.employee_id = b.dataset.cal; calState.month = b.dataset.month; go('cal'); }));
+      } catch (err) { toast(err.message, true); }
+    };
+    bindFilter(load);
+    load();
+  }
+
+  async function pageSet() {
+    const c = content();
+    const { locations } = await api('/api/locations').catch(() => ({ locations: [] }));
+    const empUrl = new URL('./', location.href).href; // หน้าแอปพนักงาน (โฟลเดอร์เดียวกับหน้านี้)
+    c.innerHTML = `
+      <div class="page-head"><div><h1>ตั้งค่า</h1></div></div>
+      <div class="settings-grid">
+        <form class="card sites-card" id="locf">
+          <h2>สถานที่ทำงาน (พิกัด GPS)</h2>
+          <p class="muted">ระบบจะดึงชื่อสถานที่ใส่ในรูปอัตโนมัติจากพิกัดที่พนักงานสแกน ถ้าอยู่นอกรัศมีจะแจ้งเตือน "นอกพื้นที่"
+            · คัดลอกพิกัดจาก Google Maps (คลิกขวาที่จุด → คลิกตัวเลขพิกัด) มาวางได้เลย</p>
+          <p class="hint">⚠ ควรใส่พิกัดให้ครบทุกสถานที่ ถ้ามีบางแห่งไม่มีพิกัด พนักงานที่อยู่แห่งนั้นจะถูกจับคู่กับสถานที่ใกล้สุดที่มีพิกัด และขึ้นว่า "นอกพื้นที่"</p>
+          <div id="siteRows"></div>
+          <div class="row" style="margin-top:10px;flex-wrap:wrap">
+            <button class="btn ghost" type="button" id="addSite">+ เพิ่มสถานที่</button>
+            <button class="btn primary" type="submit">บันทึกสถานที่</button>
+          </div>
+        </form>
+        <div class="card">
+          <h2>ลิงก์สำหรับพนักงาน</h2><p class="muted">ส่งลิงก์นี้ให้พนักงานเปิดในมือถือ แล้วกด “เพิ่มลงในหน้าจอหลัก” เพื่อใช้เป็นแอป</p>
+          <div class="link-box"><input id="empUrl" value="${esc(empUrl)}" readonly><button class="btn ghost" id="copy" type="button">คัดลอก</button></div>
+        </div>
+        <form class="card" id="pwf">
+          <h2>เปลี่ยนรหัสผ่านผู้ดูแล</h2><p class="muted">อย่างน้อย 8 ตัวอักษร</p>
+          <label class="field"><span>รหัสผ่านเดิม</span><input type="password" name="current" autocomplete="current-password" required></label>
+          <label class="field"><span>รหัสผ่านใหม่</span><input type="password" name="next" autocomplete="new-password" required></label>
+          <label class="field"><span>ยืนยันรหัสผ่านใหม่</span><input type="password" name="next2" autocomplete="new-password" required></label>
+          <button class="btn primary" type="submit">เปลี่ยนรหัสผ่าน</button>
+        </form>
+        <form class="card sites-card" id="schf">
+          <h2>ตารางงาน (กะ / วันหยุด)</h2>
+          <p class="muted">ใช้คำนวณสีปฏิทิน มาสาย และ OT อัตโนมัติ · ระบบแยกกะจากเวลาสแกนเข้าที่ใกล้เวลาเริ่มกะที่สุด</p>
+          <div id="shiftRows"></div>
+          <div class="sch-row">
+            <label class="field"><span>ผ่อนผันมาสาย (นาที)</span><input type="number" name="grace" min="0" max="120" step="1"></label>
+            <label class="field"><span>เวลาพักในกะ (ชม.) <small>หักตอนคิด OT 2</small></span><input type="number" name="brk" min="0" max="3" step="0.5"></label>
+          </div>
+          <div class="field"><span class="field-label">วันหยุดประจำสัปดาห์</span>
+            <div class="wk">${WEEK_TH.map((w, i) => `<label><input type="checkbox" name="off" value="${i}"> ${w}</label>`).join('')}</div></div>
+          <div class="field"><span class="field-label">วันหยุดบริษัท (วันสำคัญ) <small>วันที่กำหนดจะเป็นสีเทา ใครมาทำงานจะคิดเป็น OT 2/3 และส่งให้อนุมัติ</small></span>
+            <div class="hol-add">
+              <input type="date" id="holDate" aria-label="วันที่">
+              <input id="holName" placeholder="ชื่อวันหยุด เช่น วันปิยมหาราช" maxlength="60">
+              <button type="button" class="btn ghost" id="holAdd">+ เพิ่มวันหยุด</button>
+            </div>
+            <div id="holList" class="hol-list"></div></div>
+          <small class="err" id="schErr"></small>
+          <button class="btn primary" type="submit">บันทึกตารางงาน</button>
+        </form>
+      </div>`;
+    // ---- ตารางงาน ----
+    const schf = document.getElementById('schf');
+    const fillSchedule = (s) => {
+      document.getElementById('shiftRows').innerHTML = s.shifts.map((x, i) => `
+        <div class="sch-row" data-shift="${i}" data-id="${esc(x.id)}">
+          <label class="field"><span>ชื่อกะ</span><input name="sname" value="${esc(x.name)}" maxlength="40"></label>
+          <label class="field"><span>เข้างาน</span><input type="time" name="sstart" value="${esc(x.start)}"></label>
+          <label class="field"><span>เลิกงาน</span><input type="time" name="send" value="${esc(x.end)}"></label>
+        </div>`).join('');
+      schf.grace.value = s.grace_min;
+      schf.brk.value = s.break_hours;
+      schf.querySelectorAll('[name=off]').forEach((cb) => (cb.checked = s.weekly_off.includes(Number(cb.value))));
+      holidays = [...s.holidays];
+      drawHolidays();
+    };
+    // ---- วันหยุดบริษัท: เพิ่ม/ลบทีละวัน แล้วกด "บันทึกตารางงาน" ----
+    let holidays = [];
+    const drawHolidays = () => {
+      holidays.sort((a, b) => a.date.localeCompare(b.date));
+      const today = ymd(new Date());
+      const el = document.getElementById('holList');
+      el.innerHTML = holidays.length
+        ? holidays.map((h, i) => `<div class="hol-item${h.date < today ? ' past' : ''}">
+            <span class="hol-date">${esc(thDate(h.date))}</span><span class="hol-name">${esc(h.name)}</span>
+            <button type="button" class="btn danger sm" data-del-hol="${i}">ลบ</button></div>`).join('')
+        : '<div class="muted">ยังไม่มีวันหยุดบริษัท</div>';
+      el.querySelectorAll('[data-del-hol]').forEach((b) => (b.onclick = () => { holidays.splice(Number(b.dataset.delHol), 1); drawHolidays(); }));
+    };
+    document.getElementById('holAdd').onclick = () => {
+      const date = document.getElementById('holDate').value;
+      const name = document.getElementById('holName').value.trim() || 'วันหยุดบริษัท';
+      if (!date) return toast('กรุณาเลือกวันที่', true);
+      if (holidays.some((h) => h.date === date)) return toast('วันนี้เป็นวันหยุดอยู่แล้ว', true);
+      holidays.push({ date, name });
+      document.getElementById('holDate').value = '';
+      document.getElementById('holName').value = '';
+      drawHolidays();
+      toast('เพิ่มแล้ว อย่าลืมกด "บันทึกตารางงาน"');
+    };
+    api('/api/admin/schedule').then((r) => fillSchedule(r.schedule)).catch((err) => toast(err.message, true));
+    schf.onsubmit = async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('schErr');
+      err.textContent = '';
+      const shifts = [...schf.querySelectorAll('[data-shift]')].map((r) => ({
+        id: r.dataset.id, name: r.querySelector('[name=sname]').value.trim(), start: r.querySelector('[name=sstart]').value, end: r.querySelector('[name=send]').value,
+      }));
+      if (shifts.some((s) => !s.start || !s.end || s.start === s.end)) { err.textContent = 'กรุณาใส่เวลาเข้างานและเลิกงานของทุกกะให้ถูกต้อง'; return; }
+      try {
+        const r = await api('/api/admin/schedule', { method: 'PUT', body: { schedule: {
+          shifts, grace_min: Number(schf.grace.value) || 0, break_hours: Number(schf.brk.value) || 0,
+          weekly_off: [...schf.querySelectorAll('[name=off]:checked')].map((cb) => Number(cb.value)), holidays,
+        } } });
+        fillSchedule(r.schedule);
+        toast('บันทึกตารางงานแล้ว');
+      } catch (er) { toast(er.message, true); }
+    };
+
+    const rowsEl = document.getElementById('siteRows');
+    const siteRow = (s = {}) => {
+      const div = document.createElement('div');
+      div.className = 'site-row';
+      div.innerHTML = `
+        <label class="field"><span>ชื่อสถานที่</span><input name="name" value="${esc(s.name || '')}" placeholder="เช่น ไซต์งาน A - บางนา" maxlength="200"></label>
+        <label class="field"><span>พิกัด (ละติจูด, ลองจิจูด)</span><input name="coord" value="${s.lat != null ? `${s.lat}, ${s.lng}` : ''}" placeholder="13.668217, 100.634545" inputmode="decimal"></label>
+        <label class="field f-radius"><span>รัศมี (ม.)</span><input name="radius" type="number" min="20" max="50000" step="10" value="${esc(s.radius || 200)}"></label>
+        <button type="button" class="btn danger sm del-site" title="ลบ">ลบ</button>
+        <small class="err"></small>`;
+      div.querySelector('.del-site').onclick = () => div.remove();
+      rowsEl.appendChild(div);
+    };
+    locations.forEach(siteRow);
+    if (!locations.length) siteRow();
+    document.getElementById('addSite').onclick = () => siteRow();
+    const parseCoord = (v) => {
+      const m = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(v || '');
+      if (!m) return null;
+      const lat = Number(m[1]);
+      const lng = Number(m[2]);
+      return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat, lng } : null;
+    };
+    document.getElementById('locf').onsubmit = async (e) => {
+      e.preventDefault();
+      const list = [];
+      let bad = false;
+      rowsEl.querySelectorAll('.site-row').forEach((r) => {
+        const name = r.querySelector('[name=name]').value.trim();
+        const coordRaw = r.querySelector('[name=coord]').value.trim();
+        const err = r.querySelector('.err');
+        err.textContent = '';
+        if (!name && !coordRaw) return;
+        const c = coordRaw ? parseCoord(coordRaw) : null;
+        if (!name) { err.textContent = 'กรุณากรอกชื่อสถานที่'; bad = true; return; }
+        if (coordRaw && !c) { err.textContent = 'รูปแบบพิกัดไม่ถูกต้อง ตัวอย่าง: 13.668217, 100.634545'; bad = true; return; }
+        list.push({ name, lat: c?.lat ?? null, lng: c?.lng ?? null, radius: Number(r.querySelector('[name=radius]').value) || 200 });
+      });
+      if (bad) return toast('กรุณาแก้ไขข้อมูลสถานที่ที่ผิด', true);
+      try {
+        const r = await api('/api/admin/locations', { method: 'PUT', body: { locations: list } });
+        rowsEl.innerHTML = '';
+        r.locations.forEach(siteRow);
+        if (!r.locations.length) siteRow();
+        toast('บันทึกสถานที่แล้ว');
+      } catch (err) { toast(err.message, true); }
+    };
+    document.getElementById('copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(empUrl); toast('คัดลอกลิงก์แล้ว'); } catch { document.getElementById('empUrl').select(); }
+    };
+    document.getElementById('pwf').onsubmit = async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      if (f.next.value !== f.next2.value) return toast('รหัสผ่านใหม่ไม่ตรงกัน', true);
+      try { await api('/api/admin/password', { body: { current: f.current.value, next: f.next.value } }); f.reset(); toast('เปลี่ยนรหัสผ่านแล้ว'); }
+      catch (err) { toast(err.message, true); }
+    };
+  }
+
+  window.addEventListener('hashchange', () => {
+    const id = location.hash.slice(1);
+    if (document.getElementById('content') && id !== page && PAGES.some((p) => p.id === id)) go(id);
+  });
+
+  boot();
+})();
