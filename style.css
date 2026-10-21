@@ -330,3 +330,20 @@ body.sheet-open { overflow: hidden; }
 .scan-tips { list-style: none; margin: 0; padding: 4px 16px calc(14px + env(safe-area-inset-bottom)); display: grid; gap: 4px; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,.85); background: #000; }
 .scan-tips b { color: #7ff0e1; font-weight: 600; }
 @media (max-height: 640px) { .scan-tips li:nth-child(n+3) { display: none; } }
+
+/* รูปโปรไฟล์ */
+img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
+.avatar.xl { width: 72px; height: 72px; font-size: 28px; }
+.who .linkbtn { display: block; padding: 0; margin-top: 2px; font-size: 13px; }
+.av-pick { display: flex; align-items: center; gap: 14px; width: 100%; padding: 10px 12px; text-align: left; font: inherit; color: inherit; background: var(--surface-2); border: 2px dashed var(--border); border-radius: 14px; cursor: pointer; }
+.av-pick.invalid { border-color: var(--bad, #d93025); }
+.av-pick span.avatar { background: var(--surface); color: var(--muted); border: 1px solid var(--border); }
+.av-pick b { display: block; color: var(--primary); }
+.av-pick small { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.av-field .err { display: block; color: var(--bad, #d93025); font-size: 13px; font-style: normal; margin-top: 4px; }
+.avatar-cam .av-ring { position: absolute; left: 50%; top: 50%; width: min(70vw, 300px); aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; border: 3px solid rgba(255,255,255,.8); box-shadow: 0 0 0 9999px rgba(0,0,0,.45); pointer-events: none; }
+.avatar-cam .av-preview { position: absolute; left: 50%; top: 50%; width: min(70vw, 300px); aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; object-fit: cover; border: 3px solid #7ff0e1; background: #000; }
+.av-actions { display: flex; gap: 10px; padding: 0 16px calc(16px + env(safe-area-inset-bottom)); background: #000; }
+.av-actions .btn { flex: 1; }
+.av-actions .btn.ghost { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
+.av-actions .btn:disabled { opacity: .45; }

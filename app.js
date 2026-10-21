@@ -59,8 +59,8 @@
     toastTimer = setTimeout(() => (toastEl.className = ''), 3500);
   }
 
-  async function api(url, body) {
-    const { status, data } = await Backend.request(body ? 'POST' : 'GET', url, { body, token });
+  async function api(url, body, method) {
+    const { status, data } = await Backend.request(method || (body ? 'POST' : 'GET'), url, { body, token });
     if ((status === 401 || status === 403) && token && !url.startsWith('/api/auth/')) {
       signOut(data.error || 'กรุณาเข้าสู่ระบบอีกครั้ง');
       throw new Error(data.error || 'กรุณาเข้าสู่ระบบ');
@@ -119,6 +119,7 @@
     store.set('emp_profile', me);
     store.set('last_emp_code', me.emp_code);
     startApp();
+    if (!me.avatar) api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); refreshWho(); }).catch(() => {});
   }
   function signOut(msg) {
     stopGps();
@@ -204,6 +205,10 @@
       <button class="back" id="back">‹ กลับไปหน้าเข้าสู่ระบบ</button>
       <h1 class="screen-title"><span class="dot"></span>ลงทะเบียนพนักงาน</h1>
       <form class="card" id="f" novalidate>
+        <div class="field av-field"><span class="field-label">รูปโปรไฟล์ <b class="bad">*</b></span>
+          <button type="button" class="av-pick" id="avPick"><span class="avatar xl" id="avCircle">📷</span>
+            <span><b id="avPickTxt">แตะเพื่อถ่ายรูปโปรไฟล์</b><small>ถ่ายจากกล้องหน้า หน้าตรง เห็นหน้าชัด ใช้แสดงในระบบ</small></span></button>
+          <em class="err" id="avErr" hidden>กรุณาถ่ายรูปโปรไฟล์</em></div>
         <label class="field"><span>รหัสพนักงาน <small>อักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข</small></span>
           <input name="emp_code" autocapitalize="characters" autocomplete="username" spellcheck="false" maxlength="20" placeholder="เช่น EMP001" required></label>
         <div class="field"><span class="field-label">คำนำหน้าชื่อ</span>
@@ -222,6 +227,16 @@
     const f = document.getElementById('f');
     bindInputs(f);
     document.getElementById('back').onclick = renderLogin;
+    let avatarData = '';
+    document.getElementById('avPick').onclick = async () => {
+      const a = await captureAvatar();
+      if (!a) return;
+      avatarData = a;
+      document.getElementById('avCircle').outerHTML = `<img class="avatar xl" id="avCircle" src="${a}" alt="">`;
+      document.getElementById('avPickTxt').textContent = 'ถ่ายใหม่';
+      document.getElementById('avErr').hidden = true;
+      document.getElementById('avPick').classList.remove('invalid');
+    };
     f.onsubmit = async (e) => {
       e.preventDefault();
       const d = {
@@ -231,13 +246,15 @@
         last_name: f.last_name.value.trim(),
         phone: f.phone.value.trim(),
         password: f.password.value,
+        avatar: avatarData,
       };
       let ok = true;
+      if (!avatarData) { document.getElementById('avErr').hidden = false; document.getElementById('avPick').classList.add('invalid'); ok = false; }
       for (const k of ['emp_code', 'first_name', 'last_name', 'phone', 'password']) ok = setErr(f[k], RULES[k](d[k])) && ok;
       ok = setErr(f.password2, f.password2.value === d.password ? '' : 'รหัสผ่านไม่ตรงกัน') && ok;
       const seg = f.querySelector('.seg');
       ok = setErr(seg.querySelector('input'), d.title ? '' : 'กรุณาเลือกคำนำหน้า') && ok;
-      if (!ok) { f.querySelector('.invalid')?.focus(); return toast('กรุณาตรวจสอบข้อมูลที่ทำเครื่องหมายสีแดง', true); }
+      if (!ok) { f.querySelector('.invalid')?.focus(); f.querySelector('.invalid')?.scrollIntoView({ block: 'center' }); return toast('กรุณาตรวจสอบข้อมูลที่ทำเครื่องหมายสีแดง', true); }
       const btn = document.getElementById('submit');
       busy(btn, true, 'กำลังลงทะเบียน…');
       try {
@@ -454,7 +471,131 @@
     return canvas.toDataURL('image/jpeg', 0.85);
   }
 
-  const whoChip = () => `<div class="who"><span class="avatar">${esc(me.first_name.slice(0, 1))}</span><div><b>${esc(me.name)}</b><small>รหัส ${esc(me.emp_code)}</small></div></div>`;
+  const avatarHtml = (cls = '') => (me.avatar
+    ? `<img class="avatar ${cls}" src="${esc(me.avatar)}" alt="" draggable="false">`
+    : `<span class="avatar ${cls}">${esc(me.first_name.slice(0, 1))}</span>`);
+  const whoChip = () => `<div class="who">${avatarHtml()}<div><b>${esc(me.name)}</b><small>รหัส ${esc(me.emp_code)}</small>
+    ${me.avatar ? '' : '<button type="button" class="linkbtn" data-add-avatar>+ เพิ่มรูปโปรไฟล์</button>'}</div></div>`;
+  function refreshWho() {
+    document.querySelectorAll('.who').forEach((w) => { if (w.querySelector('.avatar')) w.outerHTML = whoChip(); });
+    const b = document.getElementById('chAvatar');
+    if (b) b.textContent = me.avatar ? 'เปลี่ยนรูปโปรไฟล์' : 'ถ่ายรูปโปรไฟล์';
+  }
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-add-avatar]')) changeAvatar(); });
+
+  // เปลี่ยนรูปโปรไฟล์: รูปใหม่เขียนทับรูปเก่า (รูปเก่าถูกลบ)
+  async function changeAvatar() {
+    const a = await captureAvatar();
+    if (!a) return;
+    try {
+      const r = await api('/api/me/avatar', { avatar: a }, 'PUT');
+      me = { ...me, avatar: r.avatar };
+      store.set('emp_profile', me);
+      refreshWho();
+      toast('บันทึกรูปโปรไฟล์แล้ว');
+    } catch (err) { toast(err.message, true); }
+  }
+
+  // ถ่ายรูปโปรไฟล์จากกล้องหน้า (ไม่มีเลือกจากคลังรูป) · ได้รูปสี่เหลี่ยมจัตุรัส 320px แบบกระจก
+  function captureAvatar() {
+    return new Promise((resolve) => {
+      const ov = document.createElement('div');
+      ov.className = 'scanner avatar-cam';
+      ov.innerHTML = `
+        <div class="scan-top"><b>ถ่ายรูปโปรไฟล์</b><button class="scan-x" type="button">ยกเลิก</button></div>
+        <div class="scan-stage"><video playsinline muted autoplay></video><div class="av-ring"></div><img class="av-preview" alt="" hidden></div>
+        <div class="scan-status" id="avSt">กำลังเปิดกล้อง…</div>
+        <div class="av-actions">
+          <button class="btn primary big" id="avShot" type="button" disabled>📸 ถ่ายรูป</button>
+          <button class="btn ghost big" id="avRetake" type="button" hidden>ถ่ายใหม่</button>
+          <button class="btn primary big" id="avUse" type="button" hidden>ใช้รูปนี้</button>
+        </div>`;
+      document.body.appendChild(ov);
+      document.body.classList.add('scanning');
+      const video = ov.querySelector('video');
+      const st = ov.querySelector('#avSt');
+      const shot = ov.querySelector('#avShot');
+      const retake = ov.querySelector('#avRetake');
+      const use = ov.querySelector('#avUse');
+      const preview = ov.querySelector('.av-preview');
+      let stream = null;
+      let timer = 0;
+      let detector = null;
+      let face = null;
+      let result = '';
+      const finish = (val) => {
+        clearInterval(timer);
+        stream?.getTracks().forEach((t) => t.stop());
+        ov.remove();
+        document.body.classList.remove('scanning');
+        resolve(val);
+      };
+      ov.querySelector('.scan-x').onclick = () => finish(null);
+
+      const watch = () => {
+        clearInterval(timer);
+        timer = setInterval(() => {
+          if (!video.videoWidth || !preview.hidden) return;
+          if (!detector) { shot.disabled = false; st.textContent = 'หน้าตรง ให้หน้าอยู่ในวงกลม แล้วกดถ่ายรูป'; return; }
+          try {
+            const faces = (detector.detectForVideo(video, performance.now()).detections || []).filter((d) => (d.categories?.[0]?.score ?? 0) >= 0.5);
+            face = faces.length === 1 ? faces[0].boundingBox : null;
+            const small = face && face.width / Math.min(video.videoWidth, video.videoHeight) < 0.2;
+            shot.disabled = !face || small;
+            st.textContent = faces.length > 1 ? 'พบหลายใบหน้า ให้มีเพียงคุณคนเดียว'
+              : !face ? 'ยังไม่เจอใบหน้า หันหน้าตรงเข้ากล้อง ในที่มีแสงสว่าง'
+              : small ? 'ขยับมือถือเข้าใกล้อีกนิด' : 'พร้อมแล้ว กดถ่ายรูปได้เลย';
+          } catch { shot.disabled = false; }
+        }, 200);
+      };
+      shot.onclick = () => {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        // ครอปสี่เหลี่ยมรอบใบหน้า (ถ้าตรวจเจอ) ไม่งั้นใช้กลางภาพ
+        let side = Math.min(vw, vh) * 0.85;
+        let cx = vw / 2;
+        let cy = vh / 2;
+        if (face) { side = Math.min(Math.min(vw, vh), face.width * 2.2); cx = face.originX + face.width / 2; cy = face.originY + face.height / 2; }
+        const sx = Math.max(0, Math.min(vw - side, cx - side / 2));
+        const sy = Math.max(0, Math.min(vh - side, cy - side / 2));
+        const c = document.createElement('canvas');
+        c.width = c.height = 320;
+        const g = c.getContext('2d');
+        g.translate(320, 0);
+        g.scale(-1, 1);
+        g.drawImage(video, sx, sy, side, side, 0, 0, 320, 320);
+        let q = 0.85;
+        result = c.toDataURL('image/jpeg', q);
+        while (result.length > 38000 && q > 0.4) { q -= 0.1; result = c.toDataURL('image/jpeg', q); }
+        preview.src = result;
+        preview.hidden = false;
+        shot.hidden = true;
+        retake.hidden = false;
+        use.hidden = false;
+        st.textContent = 'รูปนี้ใช้ได้ไหม?';
+      };
+      retake.onclick = () => { preview.hidden = true; shot.hidden = false; retake.hidden = true; use.hidden = true; st.textContent = 'หน้าตรง ให้หน้าอยู่ในวงกลม แล้วกดถ่ายรูป'; };
+      use.onclick = () => finish(result);
+
+      (async () => {
+        try {
+          if (!navigator.mediaDevices?.getUserMedia) throw new Error('อุปกรณ์นี้ไม่รองรับกล้อง');
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+        } catch (e) {
+          finish(null);
+          return toast(e.name === 'NotAllowedError' ? 'ไม่ได้อนุญาตให้ใช้กล้อง กรุณาเปิดสิทธิ์กล้องให้แอปนี้' : (e.message || 'เปิดกล้องไม่ได้'), true);
+        }
+        if (!ov.isConnected) { stream.getTracks().forEach((t) => t.stop()); return; }
+        if (VIRTUAL_CAM_RE.test(stream.getVideoTracks()[0]?.label || '')) { finish(null); return toast('ไม่อนุญาตให้ใช้กล้องเสมือน', true); }
+        video.srcObject = stream;
+        video.play().catch(() => {});
+        st.textContent = 'กำลังเตรียมกล้อง…';
+        try { detector = await withTimeout(loadFaceDetector(), 10000); } catch { detector = null; }
+        if (ov.isConnected) watch();
+      })();
+    });
+  }
+
 
   // ---------- Check-in / Check-out ----------
   let liveTimer = null;
@@ -1247,6 +1388,7 @@
         <div class="muted">โทร ${esc(me.phone)}</div>
         <div id="codeReqBox"></div>
         <div class="profile-actions">
+          <button class="btn ghost sm" id="chAvatar">${me.avatar ? 'เปลี่ยนรูปโปรไฟล์' : 'ถ่ายรูปโปรไฟล์'}</button>
           <button class="btn ghost sm" id="chPhone">เปลี่ยนเบอร์โทร</button>
           <button class="btn ghost sm" id="chCode">แจ้งรหัสพนักงานผิด</button>
         </div>
@@ -1254,6 +1396,7 @@
       </div>
       <h1 class="screen-title"><span class="dot"></span>ประวัติของฉัน</h1>
       <div id="hist"><div class="card empty">กำลังโหลด…</div></div>`;
+    document.getElementById('chAvatar').onclick = changeAvatar;
     document.getElementById('chPhone').onclick = openPhoneSheet;
     document.getElementById('chCode').onclick = openCodeSheet;
     loadCodeRequest();
@@ -1306,7 +1449,7 @@
 
   // ส่งสัญญาณ "ออนไลน์" ให้ผู้ดูแลเห็น: ทุก 5 นาทีขณะเปิดแอปอยู่ และทุกครั้งที่กลับมาที่แอป
   let beatTimer = null;
-  const heartbeat = () => { if (token && !document.hidden) api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); }).catch(() => {}); };
+  const heartbeat = () => { if (token && !document.hidden) api('/api/me').then((d) => { const changed = d.employee.avatar !== me.avatar; me = d.employee; store.set('emp_profile', me); if (changed) refreshWho(); }).catch(() => {}); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
 
   function startApp() {
@@ -1320,7 +1463,7 @@
     startApp();
     // ตรวจสอบบัญชีเบื้องหลัง (ถ้าออฟไลน์ก็ยังใช้งานค้างไว้ได้)
     // ถ้าผู้ดูแลแก้รหัส/เบอร์ให้ แอปจะอัปเดตเอง (รวมรหัสที่เติมไว้หน้าเข้าสู่ระบบ)
-    api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); store.set('last_emp_code', me.emp_code); authLayout(false); }).catch(() => {});
+    api('/api/me').then((d) => { const changed = d.employee.avatar !== me.avatar; me = d.employee; store.set('emp_profile', me); store.set('last_emp_code', me.emp_code); authLayout(false); if (changed) refreshWho(); }).catch(() => {});
   } else {
     renderLogin();
   }

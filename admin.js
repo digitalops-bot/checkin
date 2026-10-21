@@ -35,6 +35,37 @@
   };
   const thDateTime = (iso) => (iso ? new Date(iso).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
   const codeSub = (c) => (c ? `<div class="sub">รหัส ${esc(c)}</div>` : '');
+  // รูปโปรไฟล์พนักงาน (โหลดครั้งเดียวต่อการเปิดหน้า) · ใส่ช่องว่าง data-av ไว้ แล้วเติมรูปให้อัตโนมัติ
+  let AV = {};
+  let avLoaded = null;
+  let avReady = false;
+  const loadAvatars = (force) => {
+    if (!avLoaded || force) {
+      avLoaded = api('/api/admin/avatars').then((r) => {
+        AV = r.items || {};
+        avReady = true;
+        // จุดที่เคยแสดงเป็นตัวอักษร (ยังไม่มีรูป) ให้ลองเติมรูปใหม่
+        document.querySelectorAll('[data-av][data-done]:not(.has-img)').forEach((el) => { delete el.dataset.done; });
+        paintAvatars(document);
+      }).catch(() => { avLoaded = null; });
+    }
+    return avLoaded;
+  };
+  const avTag = (id, name, cls = '') => `<span class="av ${cls}" data-av="${esc(id ?? '')}" data-n="${esc(String(name || '').replace(/^(นาย|นางสาว|นาง)/, '').trim().slice(0, 1))}"></span>`;
+  function paintAvatars(scope) {
+    scope.querySelectorAll('[data-av]:not([data-done])').forEach((el) => {
+      const src = AV[el.dataset.av];
+      if (!src && !avReady) return;
+      el.dataset.done = '1';
+      if (src) {
+        el.innerHTML = `<img src="${esc(src)}" alt="" draggable="false">`;
+        el.classList.add('has-img');
+        el.onclick = (e) => { e.stopPropagation(); openModal(`<img class="av-big" src="${esc(src)}" alt="" draggable="false">`, 'img-only protect'); };
+      } else el.textContent = el.dataset.n || '?';
+    });
+  }
+  new MutationObserver(() => paintAvatars(document)).observe(document.documentElement, { childList: true, subtree: true });
+  const nameCell = (id, name, code, extra = '') => `<div class="name-cell">${avTag(id, name)}<div><b>${esc(name)}</b>${codeSub(code)}${extra}</div></div>`;
   const num = (n) => (n || n === 0 ? Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }) : '–');
 
   let toastTimer;
@@ -112,6 +143,7 @@
   let dashTimer;
 
   function renderShell() {
+    loadAvatars();
     const initial = location.hash.slice(1);
     if (PAGES.some((p) => p.id === initial)) page = initial;
     root.innerHTML = `
@@ -280,7 +312,7 @@
           const loc = locIn && locOut && locIn !== locOut ? `${esc(locIn)}<div class="sub">ออก: ${esc(locOut)}</div>` : esc(locIn || locOut);
           return `<tr class="click" data-i="${i}">
             ${showDate ? `<td class="nowrap">${esc(thDate(p.work_date))}</td>` : ''}
-            <td><b>${esc(p.name)}</b>${codeSub(p.emp_code)}${p.records.length > 2 ? `<div class="sub">${p.records.length} รายการ</div>` : ''}</td>
+            <td>${nameCell(p.records[0]?.employee_id, p.name, p.emp_code, p.records.length > 2 ? `<div class="sub">${p.records.length} รายการ</div>` : '')}</td>
             <td>${loc}</td>
             <td>${attCell(p.checkin)}</td>
             <td>${attCell(p.checkout)}</td>
@@ -427,7 +459,7 @@
         <canvas class="pop-photo" data-photo="${esc(r.photo)}" data-fit="contain"></canvas>
         <div class="pop-body">
           <span class="badge ${r.type === 'in' ? 'approved' : 'pending'}">${r.type === 'in' ? 'เข้างาน' : 'ออกงาน'}</span>
-          <b>${esc(r.name)}</b><div class="sub">รหัส ${esc(r.emp_code)}</div>
+          <div class="name-cell">${avTag(r.employee_id, r.name)}<div><b>${esc(r.name)}</b><div class="sub">รหัส ${esc(r.emp_code)}</div></div></div>
           <div>🕒 ${esc(thDate(r.work_date))} ${esc(r.time)} น.</div>
           <div>🏢 ${esc(r.location)}</div>
           <div class="sub">📍 ${Number(r.lat).toFixed(6)}, ${Number(r.lng).toFixed(6)}${r.accuracy ? ` (±${Math.round(r.accuracy)} ม.)` : ''}</div>
@@ -455,7 +487,7 @@
       const list = document.getElementById('mapList');
       list.innerHTML = `<div class="map-list-head">${shown.length} จุด${recs.length !== shown.length ? ` (จาก ${recs.length})` : ''}</div>`
         + (shown.length ? shown.map((r) => `<button type="button" class="map-item" data-id="${esc(r.id)}">
-            <span class="dot ${r.type}"></span><span><b>${esc(r.name)}</b> <span class="sub">${esc(r.emp_code)}</span>
+            <span class="dot ${r.type}"></span>${avTag(r.employee_id, r.name, 'sm')}<span><b>${esc(r.name)}</b> <span class="sub">${esc(r.emp_code)}</span>
             <div class="sub">${r.type === 'in' ? 'เข้างาน' : 'ออกงาน'} ${esc(r.time)} · ${esc(r.location)}${warnsOf(r).length ? ' · <span class="bad">⚠</span>' : ''}</div></span></button>`).join('')
           : '<div class="empty">ไม่มีจุดสแกนในวันที่เลือก</div>');
       list.querySelectorAll('.map-item').forEach((b) => (b.onclick = () => {
@@ -525,7 +557,7 @@
               <tr>
                 <td><input type="checkbox" class="sel" value="${o.id}" aria-label="เลือก"></td>
                 <td class="nowrap">${esc(thDate(o.ot_date))}<div class="sub">ส่ง ${esc(thDateTime(o.created_at))}</div></td>
-                <td><b>${esc(o.name)}</b>${codeSub(o.emp_code)}</td>
+                <td>${nameCell(o.employee_id, o.name, o.emp_code)}</td>
                 <td><span class="badge ot">OT ${esc(o.ot_type)}</span><div class="sub">${OT_LABEL[o.ot_type]}</div></td>
                 <td class="nowrap">${o.scan_in ? `<span class="t-time">${esc(o.scan_in)}–${esc(o.scan_out)}</span>${o.shift_name ? `<div class="sub">${esc(o.shift_name)}</div>` : ''}` : '<span class="muted">–</span>'}</td>
                 <td class="nowrap t-time">${esc(o.start_time)}–${esc(o.end_time)}</td>
@@ -708,7 +740,7 @@
         <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>ออนไลน์</th><th>สแกนเข้างานล่าสุด</th><th>ขาดสแกน (วันทำงาน)</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
         <tbody>${rows.map((e) => `<tr class="${e.status === 'pending' ? 'row-pending' : e.missed_workdays >= 7 ? 'row-inactive' : ''}">
           <td class="t-time">${esc(e.emp_code)}</td>
-          <td><b>${esc(e.title + e.first_name + ' ' + e.last_name)}</b><div class="sub">ลงทะเบียน ${esc(thDate(ymd(new Date(e.created_at))))} · ${e.devices} เครื่อง</div></td>
+          <td>${nameCell(e.id, e.title + e.first_name + ' ' + e.last_name, '', `<div class="sub">ลงทะเบียน ${esc(thDate(ymd(new Date(e.created_at))))} · ${e.devices} เครื่อง</div>`)}</td>
           <td class="nowrap">${esc(e.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'))}</td>
           <td class="nowrap">${e.online ? '<span class="dot-online"></span>ออนไลน์' : `<span class="dot-offline"></span><span class="muted">${e.last_seen_at ? `ใช้ล่าสุด ${esc(ago(e.last_seen_at))}` : 'ยังไม่เคยใช้'}</span>`}</td>
           <td class="nowrap">${e.last_checkin_date ? `${esc(thDate(e.last_checkin_date))}<div class="sub">${e.days_since_checkin === 0 ? 'วันนี้' : `${e.days_since_checkin} วันที่แล้ว`}</div>` : '<span class="muted">ยังไม่เคยสแกน</span>'}</td>
@@ -765,43 +797,58 @@
       t.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => openDelete(items.find((x) => String(x.id) === b.dataset.del))));
     };
 
-    // ---- ลบพนักงาน: เลือกเก็บประวัติหรือลบทั้งหมด + พิมพ์รหัสยืนยัน ----
-    const openDelete = (e) => {
+    // ---- ลบพนักงาน = ลบทุกอย่างที่เกี่ยวข้องถาวร · แสดงจำนวนที่จะถูกลบ + ติ๊กยอมรับ + พิมพ์รหัสยืนยัน ----
+    const openDelete = async (e) => {
+      const fullName = e.title + e.first_name + ' ' + e.last_name;
+      openModal(`<h2 style="margin:0 40px 6px 0">ลบพนักงาน</h2><div class="empty">กำลังตรวจสอบข้อมูลที่เกี่ยวข้อง…</div>`);
+      let im;
+      try { im = await api(`/api/admin/employees/${e.id}/impact`); } catch (err) { closeModal(); return toast(err.message, true); }
+      const range = im.first_date ? `${thDate(im.first_date)}${im.last_date !== im.first_date ? ` – ${thDate(im.last_date)}` : ''}` : '';
       openModal(`
-        <h2 style="margin:0 40px 6px 0">ลบพนักงาน</h2>
-        <div class="muted">${esc(e.title + e.first_name + ' ' + e.last_name)} · รหัส <b>${esc(e.emp_code)}</b></div>
-        <div class="del-info">สแกนเข้างานล่าสุด: <b>${e.last_checkin_date ? esc(thDate(e.last_checkin_date)) : 'ยังไม่เคยสแกน'}</b> · ขาดสแกน ${e.missed_workdays || 0} วันทำงาน · ใช้แอปล่าสุด ${e.last_seen_at ? esc(ago(e.last_seen_at)) : '–'}</div>
+        <h2 style="margin:0 40px 10px 0">ลบพนักงานและข้อมูลทั้งหมด</h2>
+        <div class="name-cell del-who">${avTag(e.id, fullName, 'lg')}<div><b>${esc(fullName)}</b><div class="sub">รหัส ${esc(e.emp_code)} · โทร ${esc(e.phone)}</div></div></div>
+        <div class="del-warn">
+          <b>⚠ ข้อมูลต่อไปนี้จะถูกลบถาวร กู้คืนไม่ได้</b>
+          <ul>
+            <li>บัญชีพนักงาน (เข้าสู่ระบบไม่ได้อีก)</li>
+            <li>ประวัติลงเวลา <b>${im.attendance}</b> รายการ${range ? ` <span class="sub">(${esc(range)})</span>` : ''}</li>
+            <li>รูปถ่ายตอนสแกนเข้า-ออกงาน <b>${im.photos}</b> รูป</li>
+            <li>คำขอ OT <b>${im.ot}</b> รายการ · คำร้อง <b>${im.appeals}</b> รายการ</li>
+            <li>รูปโปรไฟล์${im.avatar ? '' : ' (ไม่มี)'}</li>
+          </ul>
+          <div class="sub">ข้อมูลของคนนี้จะหายจากรายงาน สรุปรายคน แผนที่ และไฟล์ Excel ที่ส่งออกหลังจากนี้ · รูปที่ส่งเข้า Telegram ไปแล้ว ระบบลบให้ไม่ได้ ต้องลบในแอป Telegram เอง</div>
+        </div>
         <form id="delf" class="del-form">
-          <label class="del-opt"><input type="radio" name="mode" value="account" checked>
-            <div><b>ลบบัญชี แต่เก็บประวัติไว้ (แนะนำ)</b><div class="sub">เข้าระบบไม่ได้อีก · ประวัติลงเวลา/OT/รูปยังอยู่เป็นหลักฐาน (กฎหมายแรงงานให้เก็บเอกสารการจ้างอย่างน้อย 2 ปี) · รหัสและเบอร์นี้นำไปใช้สมัครใหม่ได้</div></div></label>
-          <label class="del-opt danger"><input type="radio" name="mode" value="all">
-            <div><b>ลบทั้งหมด</b><div class="sub">ลบบัญชี + ประวัติลงเวลา + รูปถ่าย + OT + คำร้อง ของคนนี้ถาวร <b>กู้คืนไม่ได้</b></div></div></label>
+          <label class="del-ack"><input type="checkbox" name="ack"> ฉันเข้าใจว่าข้อมูลทั้งหมดของพนักงานคนนี้จะถูกลบถาวร และกู้คืนไม่ได้</label>
           <label class="field"><span>พิมพ์รหัสพนักงาน <b>${esc(e.emp_code)}</b> เพื่อยืนยัน</span><input name="confirm" autocomplete="off" spellcheck="false"></label>
-          <div class="row"><button type="submit" class="btn danger" id="delBtn" disabled>ลบพนักงาน</button><button type="button" class="btn ghost" id="delCancel">ยกเลิก</button></div>
-          <p class="sub">ถ้าไม่แน่ใจว่าลาออกจริง ให้กด "ปิดใช้งาน" แทน (เปิดกลับได้ภายหลัง)</p>
+          <div class="row"><button type="submit" class="btn danger" id="delBtn" disabled>ลบทั้งหมดถาวร</button><button type="button" class="btn ghost" id="delCancel">ยกเลิก</button></div>
+          <p class="sub">ถ้าต้องการเก็บประวัติไว้เป็นหลักฐาน (เช่น ใช้คำนวณเงินเดือนย้อนหลัง) ให้กด "ยกเลิก" แล้วใช้ "ปิดใช้งาน" แทน พนักงานจะเข้าระบบไม่ได้แต่ข้อมูลยังอยู่</p>
         </form>`);
       const f = document.getElementById('delf');
       const btn = document.getElementById('delBtn');
-      f.confirm.oninput = () => { btn.disabled = f.confirm.value.trim().toUpperCase() !== e.emp_code; };
-      f.querySelectorAll('[name=mode]').forEach((r) => (r.onchange = () => { btn.textContent = f.mode.value === 'all' ? 'ลบทั้งหมดถาวร' : 'ลบพนักงาน'; }));
+      const check = () => { btn.disabled = !f.ack.checked || f.confirm.value.trim().toUpperCase() !== e.emp_code; };
+      f.confirm.oninput = check;
+      f.ack.onchange = check;
       document.getElementById('delCancel').onclick = closeModal;
       f.onsubmit = async (ev) => {
         ev.preventDefault();
-        if (f.mode.value === 'all' && !confirm(`ยืนยันลบข้อมูลทั้งหมดของ ${e.emp_code} ถาวร? กู้คืนไม่ได้`)) return;
+        if (btn.disabled) return;
+        if (!confirm(`ยืนยันครั้งสุดท้าย: ลบ ${fullName} (${e.emp_code}) และข้อมูลทั้งหมดถาวร?`)) return;
         btn.disabled = true;
         btn.textContent = 'กำลังลบ…';
         try {
-          const r = await api(`/api/admin/employees/${e.id}?mode=${f.mode.value}&confirm=${encodeURIComponent(f.confirm.value.trim())}`, { method: 'DELETE' });
+          const r = await api(`/api/admin/employees/${e.id}?mode=all&confirm=${encodeURIComponent(f.confirm.value.trim())}`, { method: 'DELETE' });
           closeModal();
-          toast(r.mode === 'all' ? `ลบ ${e.emp_code} แล้ว (ลงเวลา ${r.removed.attendance} รายการ, รูป ${r.removed.photos} รูป)` : `ลบบัญชี ${e.emp_code} แล้ว (เก็บประวัติไว้)`);
+          toast(`ลบ ${e.emp_code} และข้อมูลทั้งหมดแล้ว (ลงเวลา ${r.removed.attendance} รายการ, รูป ${r.removed.photos} รูป, OT ${r.removed.ot}, คำร้อง ${r.removed.appeals})`);
           load();
           refreshCounts();
-        } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = 'ลบพนักงาน'; }
+        } catch (err) { toast(err.message, true); btn.textContent = 'ลบทั้งหมดถาวร'; check(); }
       };
     };
 
     const load = async () => {
       loadCodeReqs();
+      loadAvatars(true);
       const q = ef.q.value.trim();
       document.getElementById('expEmp').onclick = () => Backend.download(`/api/admin/export/employees?${new URLSearchParams(q ? { q } : {})}`, 'employees.csv').catch((e) => toast(e.message, true));
       try {
@@ -953,7 +1000,7 @@
           <thead><tr><th>วันที่</th><th>ชื่อ</th><th>ปัญหาของวันนั้น</th><th>เหตุผล / รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
           <tbody>${items.map((a) => `<tr>
             <td class="nowrap">${esc(thDate(a.work_date))}<div class="sub">ส่ง ${esc(thDateTime(a.created_at))}</div></td>
-            <td><b>${esc(a.name)}</b>${codeSub(a.emp_code)}</td>
+            <td>${nameCell(a.employee_id, a.name, a.emp_code)}</td>
             <td><span class="sub" style="color:var(--bad)">${esc(a.issues || '-')}</span></td>
             <td><b>${esc(a.reason)}</b><div>${esc(a.note)}</div>${a.review_note ? `<div class="sub">ผู้ดูแล: ${esc(a.review_note)}</div>` : ''}</td>
             <td><span class="badge ${a.status}">${APPEAL_TH[a.status]}</span></td>
