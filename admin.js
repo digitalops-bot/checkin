@@ -853,9 +853,14 @@
               ${a.status !== 'approved' ? `<button class="btn ok sm" data-id="${a.id}" data-st="approved">อนุมัติ</button>` : ''}
               ${a.status !== 'rejected' ? `<button class="btn danger sm" data-id="${a.id}" data-st="rejected">ไม่อนุมัติ</button>` : ''}
               <button class="btn ghost sm" data-cal="${a.employee_id}" data-month="${esc(a.work_date.slice(0, 7))}">ดูปฏิทิน</button>
+              <button class="btn ghost sm" data-delap="${a.id}">ลบ</button>
             </div></td></tr>`).join('')}</tbody></table></div>
           <div class="table-foot"><span>${items.length} รายการ</span></div></div>`;
         t.querySelectorAll('[data-st]').forEach((b) => (b.onclick = () => decideAppeal(b.dataset.id, b.dataset.st, load)));
+        t.querySelectorAll('[data-delap]').forEach((b) => (b.onclick = async () => {
+          if (!confirm('ลบคำร้องนี้? (วันนั้นจะกลับเป็นสีตามข้อมูลการสแกนจริง)')) return;
+          try { await api(`/api/admin/appeals/${b.dataset.delap}`, { method: 'DELETE' }); toast('ลบคำร้องแล้ว'); refreshCounts(); load(); } catch (err) { toast(err.message, true); }
+        }));
         t.querySelectorAll('[data-cal]').forEach((b) => (b.onclick = () => { calState.employee_id = b.dataset.cal; calState.month = b.dataset.month; go('cal'); }));
       } catch (err) { toast(err.message, true); }
     };
@@ -885,6 +890,19 @@
           <h2>ลิงก์สำหรับพนักงาน</h2><p class="muted">ส่งลิงก์นี้ให้พนักงานเปิดในมือถือ แล้วกด “เพิ่มลงในหน้าจอหลัก” เพื่อใช้เป็นแอป</p>
           <div class="link-box"><input id="empUrl" value="${esc(empUrl)}" readonly><button class="btn ghost" id="copy" type="button">คัดลอก</button></div>
         </div>
+        <form class="card reset-card" id="rsf">
+          <h2>ล้างข้อมูล (สำหรับทดสอบระบบ)</h2>
+          <p class="muted">ใช้ล้างข้อมูลที่ทดลองไว้ก่อนเปิดให้พนักงานใช้จริง · <b>การตั้งค่าจะไม่ถูกลบ</b> (รหัสผ่านผู้ดูแล, สถานที่ทำงาน, ตารางกะ, วันหยุด)</p>
+          <div class="reset-opts">
+            <label><input type="checkbox" name="scope" value="attendance" checked> การลงเวลาเข้า-ออก + รูปสแกนทั้งหมด</label>
+            <label><input type="checkbox" name="scope" value="ot" checked> คำขอ OT ทั้งหมด</label>
+            <label><input type="checkbox" name="scope" value="appeals" checked> คำร้องทั้งหมด</label>
+            <label><input type="checkbox" name="scope" value="employees" checked> บัญชีพนักงานทั้งหมด (ทุกคนต้องสมัครใหม่)</label>
+          </div>
+          <label class="field"><span>พิมพ์ <b>ลบข้อมูลทั้งหมด</b> เพื่อยืนยัน</span><input name="confirm" autocomplete="off"></label>
+          <button class="btn danger" type="submit" id="rsBtn" disabled>ล้างข้อมูลที่เลือก</button>
+          <p class="sub">⚠ ลบแล้วกู้คืนไม่ได้ · ห้ามใช้หลังเปิดใช้งานจริงแล้ว</p>
+        </form>
         <form class="card" id="pwf">
           <h2>เปลี่ยนรหัสผ่านผู้ดูแล</h2><p class="muted">อย่างน้อย 8 ตัวอักษร</p>
           <label class="field"><span>รหัสผ่านเดิม</span><input type="password" name="current" autocomplete="current-password" required></label>
@@ -1021,6 +1039,30 @@
     document.getElementById('copy').onclick = async () => {
       try { await navigator.clipboard.writeText(empUrl); toast('คัดลอกลิงก์แล้ว'); } catch { document.getElementById('empUrl').select(); }
     };
+    // ---- ล้างข้อมูล ----
+    const rsf = document.getElementById('rsf');
+    const rsBtn = document.getElementById('rsBtn');
+    const rsCheck = () => { rsBtn.disabled = rsf.confirm.value.trim() !== 'ลบข้อมูลทั้งหมด' || !rsf.querySelector('[name=scope]:checked'); };
+    rsf.confirm.oninput = rsCheck;
+    rsf.querySelectorAll('[name=scope]').forEach((cb) => (cb.onchange = rsCheck));
+    rsf.onsubmit = async (e) => {
+      e.preventDefault();
+      const scopes = [...rsf.querySelectorAll('[name=scope]:checked')].map((cb) => cb.value);
+      const names = { attendance: 'การลงเวลา+รูป', ot: 'คำขอ OT', appeals: 'คำร้อง', employees: 'บัญชีพนักงาน' };
+      if (!confirm(`ยืนยันลบ: ${scopes.map((x) => names[x]).join(', ')}\nลบแล้วกู้คืนไม่ได้`)) return;
+      rsBtn.disabled = true;
+      rsBtn.textContent = 'กำลังลบ…';
+      try {
+        const r = await api('/api/admin/reset', { body: { confirm: rsf.confirm.value.trim(), scopes } });
+        const x = r.removed;
+        toast(`ล้างข้อมูลแล้ว${x.attendance != null ? ` · ลงเวลา ${x.attendance} รายการ (รูป ${x.photos})` : ''}${x.ot != null ? ` · OT ${x.ot}` : ''}${x.appeals != null ? ` · คำร้อง ${x.appeals}` : ''}${x.employees != null ? ` · พนักงาน ${x.employees} คน` : ''}`);
+        rsf.confirm.value = '';
+        refreshCounts();
+      } catch (err) { toast(err.message, true); }
+      rsBtn.textContent = 'ล้างข้อมูลที่เลือก';
+      rsCheck();
+    };
+
     document.getElementById('pwf').onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target;
