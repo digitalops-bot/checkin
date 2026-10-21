@@ -1,5 +1,5 @@
 // Service worker: เปิดแอปได้เร็ว (ใช้เน็ตก่อน ถ้าออฟไลน์ใช้ไฟล์ที่เก็บไว้)
-const CACHE = 'checkin-v16';
+const CACHE = 'checkin-v17';
 const SHELL = ['./', 'index.html', 'style.css', 'config.js', 'transport.js', 'guard.js', 'app.js', 'icon.svg', 'icon-192.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
@@ -15,6 +15,6 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); return res; })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html'))),
+      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('index.html'))), // ไฟล์มี ?v=… ต่อท้าย
   );
 });
