@@ -213,7 +213,7 @@ body.scanning { overflow: hidden; }
 .scan-ring .prog { stroke: #2bd4c0; stroke-width: 8; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset .1s linear; }
 .scanner:not(.face-ok) .scan-ring .prog { stroke: #f0a34a; }
 .scan-count { position: absolute; left: 0; right: 0; top: 14px; text-align: center; font-size: 56px; font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,.6); font-variant-numeric: tabular-nums; }
-.scan-status { padding: 16px 16px calc(22px + env(safe-area-inset-bottom)); text-align: center; font-size: 17px; font-weight: 600; min-height: 72px; }
+.scan-status { padding: 14px 16px 8px; text-align: center; font-size: 17px; font-weight: 600; min-height: 56px; }
 .scanner.face-ok .scan-status { color: #7ff0e1; }
 
 /* ---------- ปฏิทิน ---------- */
@@ -325,3 +325,8 @@ body.sheet-open { overflow: hidden; }
 .site-quick { margin: -4px 0 12px; }
 .chip-btn { border: 1px solid var(--border); background: var(--surface-2); color: inherit; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .field input.input-bad { border-color: #d93025; box-shadow: 0 0 0 3px rgba(217,48,37,.15); }
+
+/* คำแนะนำระหว่างสแกนใบหน้า */
+.scan-tips { list-style: none; margin: 0; padding: 4px 16px calc(14px + env(safe-area-inset-bottom)); display: grid; gap: 4px; font-size: 13px; line-height: 1.45; color: rgba(255,255,255,.85); background: #000; }
+.scan-tips b { color: #7ff0e1; font-weight: 600; }
+@media (max-height: 640px) { .scan-tips li:nth-child(n+3) { display: none; } }

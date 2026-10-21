@@ -374,16 +374,22 @@
   const MP_BASE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
   const FACE_MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
   let detectorPromise = null;
-  function loadFaceDetector() {
+  let cpuDetectorPromise = null;
+  const makeDetector = async (delegate) => {
+    const vision = await import(`${MP_BASE}/vision_bundle.mjs`);
+    const files = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
+    return vision.FaceDetector.createFromOptions(files, {
+      baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', minDetectionConfidence: 0.5,
+    });
+  };
+  // cpu = true: ใช้เมื่อโหมด GPU ของเครื่องนั้นตรวจหน้าไม่เจอ
+  function loadFaceDetector(cpu) {
+    if (cpu) {
+      if (!cpuDetectorPromise) cpuDetectorPromise = makeDetector('CPU').catch((e) => { cpuDetectorPromise = null; throw e; });
+      return cpuDetectorPromise;
+    }
     if (!detectorPromise) {
-      detectorPromise = (async () => {
-        const vision = await import(`${MP_BASE}/vision_bundle.mjs`);
-        const files = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
-        const make = (delegate) => vision.FaceDetector.createFromOptions(files, {
-          baseOptions: { modelAssetPath: FACE_MODEL, delegate }, runningMode: 'VIDEO', minDetectionConfidence: 0.6,
-        });
-        try { return await make('GPU'); } catch { return await make('CPU'); }
-      })().catch((e) => { detectorPromise = null; throw e; });
+      detectorPromise = makeDetector('GPU').catch(() => makeDetector('CPU')).catch((e) => { detectorPromise = null; throw e; });
     }
     return detectorPromise;
   }
@@ -452,31 +458,24 @@
 
   // ---------- Check-in / Check-out ----------
   let liveTimer = null;
-  // หน้าลงเวลา: สแกนครั้งแรก = เข้างาน, ครั้งที่สอง = ออกงาน (ระบบเลือกให้ สลับเองได้ถ้าจำเป็น)
-  let scanOverride = null;
+  // หน้าลงเวลา: สแกนครั้งแรก = เข้างาน, ครั้งที่สอง = ออกงาน (ระบบกำหนดให้ เลือกเองไม่ได้ กันเข้างานซ้ำ)
   let scanStatus = null;
-  async function renderScan(override) {
-    scanOverride = override || null;
-    if (!scanStatus || !override) {
-      view.innerHTML = '<h1 class="screen-title"><span class="dot"></span>ลงเวลา</h1><div class="card empty">กำลังตรวจสอบว่าครั้งนี้เป็นเข้างานหรือออกงาน…</div>';
-      try { scanStatus = await api('/api/me/scan-status'); } catch { scanStatus = { next: 'in', last: null, reason: 'offline' }; }
-      if (current !== 'scan') return;
-    }
-    renderAttendance(scanOverride || scanStatus.next);
+  async function renderScan() {
+    view.innerHTML = '<h1 class="screen-title"><span class="dot"></span>ลงเวลา</h1><div class="card empty">กำลังตรวจสอบว่าครั้งนี้เป็นเข้างานหรือออกงาน…</div>';
+    try { scanStatus = await api('/api/me/scan-status'); } catch { scanStatus = { next: 'in', last: null, reason: 'offline' }; }
+    if (current !== 'scan') return;
+    renderAttendance(scanStatus.next);
   }
   function scanBanner(mode) {
     const st = scanStatus || {};
     const last = st.last;
     const when = last ? `${last.work_date !== today() ? `${thDate(last.work_date)} ` : ''}${last.time} น.` : '';
     let text;
-    if (scanOverride) text = mode === 'in' ? 'คุณเลือกสแกน <b>เข้างาน</b> เอง' : 'คุณเลือกสแกน <b>ออกงาน</b> เอง';
-    else if (mode === 'out' && st.reason === 'recent_checkout') text = `ออกงานแล้วเมื่อ <b>${esc(when)}</b> · สแกนอีกครั้งจะ<b>อัปเดตเวลาออกงาน</b>`;
+    if (mode === 'out' && st.reason === 'recent_checkout') text = `ออกงานแล้วเมื่อ <b>${esc(when)}</b> · สแกนอีกครั้งจะ<b>อัปเดตเวลาออกงาน</b>`;
     else if (mode === 'out') text = `เข้างานแล้วเมื่อ <b>${esc(when)}</b> · ครั้งนี้คือ <b>สแกนออกงาน</b>`;
-    else if (st.reason === 'stale_checkin') text = `มีการเข้างานเมื่อ ${esc(when)} ที่ไม่ได้สแกนออก · ครั้งนี้นับเป็น<b>เข้างานใหม่</b>`;
+    else if (st.reason === 'stale_checkin') text = `มีการเข้างานเมื่อ ${esc(when)} ที่ไม่ได้สแกนออก (เกิน 18 ชม.) · ครั้งนี้นับเป็น<b>เข้างานใหม่</b> · ถ้าลืมสแกนออก ยื่นคำร้องได้ที่ปฏิทิน`;
     else text = 'ยังไม่ได้สแกนเข้างาน · ครั้งนี้คือ <b>สแกนเข้างาน</b>';
-    const other = mode === 'in' ? 'out' : 'in';
-    return `<div class="scan-banner ${mode}">${text}
-      <button class="linkbtn" id="swapMode" type="button">${scanOverride ? 'กลับไปใช้ที่ระบบเลือกให้' : `ต้องการสแกน${other === 'in' ? 'เข้างาน' : 'ออกงาน'}แทน?`}</button></div>`;
+    return `<div class="scan-banner ${mode}">${text}</div>`;
   }
 
   function renderAttendance(mode) {
@@ -496,16 +495,10 @@
         <button class="btn primary big scan-btn" id="scanBtn" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>
           สแกนใบหน้า${isIn ? 'เข้างาน' : 'ออกงาน'}</button>
-        <p class="hint">กดแล้วหันหน้าเข้ากล้องค้างไว้ 5 วินาที ระบบจะถ่ายรูปพร้อมประทับเวลาจริง พิกัด และสถานที่ทำงานให้อัตโนมัติ</p>
+        <p class="hint">กดแล้วมองตรงเข้ากล้อง ค้างไว้นิ่งๆ 5 วินาที (ไม่ต้องขยับหน้า) ระบบจะถ่ายรูปพร้อมประทับเวลาจริง พิกัด และสถานที่ทำงานให้อัตโนมัติ</p>
         <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
       </div>`;
 
-    document.getElementById('swapMode').onclick = () => {
-      if (scanOverride) return renderScan();
-      const other = mode === 'in' ? 'out' : 'in';
-      if (!confirm(`ยืนยันสแกน${other === 'in' ? 'เข้างาน' : 'ออกงาน'}แทน?\nใช้เฉพาะกรณีที่ระบบเลือกไม่ตรง เช่น ลืมสแกนออกงานเมื่อวาน`)) return;
-      renderScan(other);
-    };
     const lc = document.getElementById('lc');
     const ld = document.getElementById('ld');
     const drawClock = () => { const d = serverNow(); lc.textContent = fmtClock(d); ld.textContent = fmtDay(d); };
@@ -582,7 +575,7 @@
     try {
       const st = await navigator.permissions.query({ name });
       // ผู้ใช้เปลี่ยนสิทธิ์ในตั้งค่า → อัปเดตกล่องสถานะทันที
-      if (!permWatch[name]) { permWatch[name] = true; st.onchange = () => { if (current === 'scan') renderScan(scanOverride); }; }
+      if (!permWatch[name]) { permWatch[name] = true; st.onchange = () => { if (current === 'scan') renderScan(); }; }
       return st.state;
     } catch { return 'unknown'; } // เบราว์เซอร์บางรุ่น (เช่น Safari รุ่นเก่า) ไม่บอกสถานะ
   }
@@ -635,7 +628,7 @@
     if (current !== 'scan') return;
     if (geoOk && camOk) {
       toast('เปิดสิทธิ์แล้ว สแกนได้เลย');
-      renderScan(scanOverride);
+      renderScan();
       return;
     }
     if (btn) busy(btn, false);
@@ -652,7 +645,7 @@
       const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
       st.getTracks().forEach((t) => t.stop());
     } catch { /* ผู้ใช้ไม่อนุญาต → กล่องจะเป็นสีแดง */ }
-    if (current === 'scan') renderScan(scanOverride);
+    if (current === 'scan') renderScan();
   }
   function openPermGuide() {
     const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -684,7 +677,13 @@
         <svg class="scan-ring" viewBox="0 0 100 130" preserveAspectRatio="none"><ellipse class="track" cx="50" cy="62" rx="36" ry="48"/><ellipse class="prog" id="prog" cx="50" cy="62" rx="36" ry="48" pathLength="100"/></svg>
         <div class="scan-count" id="cnt"></div>
       </div>
-      <div class="scan-status" id="st">กำลังเปิดกล้อง…</div>`;
+      <div class="scan-status" id="st">กำลังเปิดกล้อง…</div>
+      <ul class="scan-tips">
+        <li>📱 ถือมือถือระดับสายตา ห่างประมาณ 1 ศอก</li>
+        <li>🙂 มองตรงเข้ากล้อง ค้างไว้นิ่งๆ <b>ไม่ต้องขยับหรือหันซ้ายขวา</b></li>
+        <li>💡 หันหน้าเข้าหาแสง ไม่ยืนย้อนแสง · ถอดหน้ากาก/แว่นดำ</li>
+        <li>🟢 กรอบเป็นสีเขียว = จับหน้าได้ ระบบนับ 5 วินาทีเอง</li>
+      </ul>`;
     document.body.appendChild(ov);
     document.body.classList.add('scanning');
 
@@ -733,7 +732,13 @@
       if (!lastFix) return fail('ไม่พบพิกัด GPS กรุณารอสักครู่แล้วสแกนใหม่');
 
       // ขอรหัสสแกนจากเซิร์ฟเวอร์ = จุดเริ่มนับเวลาจริง
-      const cap = await api('/api/capture/start', { type: mode });
+      let cap;
+      try { cap = await api('/api/capture/start', { type: mode }); } catch (err) {
+        fail(err.message || 'เริ่มสแกนไม่ได้ กรุณาลองใหม่');
+        // สถานะเปลี่ยน (เช่น สแกนเข้างานไปแล้วจากอีกเครื่อง) → โหลดหน้าลงเวลาใหม่ให้ตรงกับระบบ
+        if (/ต้องสแกน|ได้เฉพาะออกงาน/.test(err.message || '')) { scanStatus = null; renderScan(); }
+        return;
+      }
       if (closed) return;
       const t0 = performance.now();
       const scanWall = Date.now();
@@ -743,25 +748,61 @@
       let frames = 0;
       let seenFace = false;
       let last = t0;
-      let lastDetect = -1;
+      let lastDetect = -1e9;
+      let lastOkAt = -1e9;
+      let detState = 'none';
+      let anyFaceEver = false;
+      let triedCpu = false;
+      let lightAt = -1e9;
+      let dark = false;
+      const lightCanvas = document.createElement('canvas');
+      lightCanvas.width = lightCanvas.height = 24;
+      const lightCtx = lightCanvas.getContext('2d', { willReadFrequently: true });
 
+      // วิธีตรวจ: ต้องเจอใบหน้าเดียว ขนาดพอดี อยู่กลางภาพ รวมแล้วครบ 5 วินาที (ไม่ต้องขยับหน้า ไม่ต้องหันซ้ายขวา)
+      const detectFace = (now) => {
+        const res = detector.detectForVideo(video, now);
+        const faces = (res.detections || []).filter((d) => (d.categories?.[0]?.score ?? 0) >= 0.5);
+        if (faces.length) anyFaceEver = true;
+        if (faces.length > 1) return 'many';
+        if (!faces.length) return 'none';
+        const bb = faces[0].boundingBox;
+        const vw = video.videoWidth || 1;
+        const vh = video.videoHeight || 1;
+        if (bb.width / Math.min(vw, vh) < 0.16) return 'far';
+        const cx = (bb.originX + bb.width / 2) / vw;
+        const cy = (bb.originY + bb.height / 2) / vh;
+        if (cx < 0.2 || cx > 0.8 || cy < 0.15 || cy > 0.85) return 'offcenter';
+        return 'ok';
+      };
       const step = () => {
         if (closed) return;
         const now = performance.now();
         const dt = Math.min(now - last, 200);
         last = now;
-        let state = 'none';
-        if (detector) {
-          if (now > lastDetect) {
-            try {
-              const res = detector.detectForVideo(video, now);
-              lastDetect = now;
-              const faces = (res.detections || []).filter((d) => (d.categories?.[0]?.score ?? 0) >= 0.6);
-              if (faces.length > 1) state = 'many';
-              else if (faces.length === 1) state = faces[0].boundingBox.width / video.videoWidth >= 0.18 ? 'ok' : 'far';
-            } catch { state = 'none'; }
+        // ตรวจทุก ~90ms (ลดภาระเครื่อง) และจำผลไว้ระหว่างรอบ ไม่ให้วงแหวนกระพริบ
+        if (detector && now - lastDetect >= 90) {
+          lastDetect = now;
+          try { detState = detectFace(now); } catch { detState = 'none'; }
+          if (detState === 'ok') lastOkAt = now;
+          // บางเครื่องโหมด GPU ตรวจหน้าไม่เจอเลย → สลับไปใช้ CPU อัตโนมัติ
+          if (!anyFaceEver && !triedCpu && now - t0 > 5000) {
+            triedCpu = true;
+            loadFaceDetector(true).then((d) => { if (d && !closed) { detector = d; detectorPromise = cpuDetectorPromise; } }).catch(() => {});
           }
-        } else state = 'ok';
+        }
+        // ตรวจความสว่างทุกครึ่งวินาที
+        if (now - lightAt > 500 && video.videoWidth) {
+          lightAt = now;
+          try {
+            lightCtx.drawImage(video, 0, 0, 24, 24);
+            const px = lightCtx.getImageData(0, 0, 24, 24).data;
+            let sum = 0;
+            for (let i = 0; i < px.length; i += 4) sum += px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+            dark = sum / (px.length / 4) < 45;
+          } catch { dark = false; }
+        }
+        const state = !detector ? 'ok' : now - lastOkAt < 350 ? 'ok' : detState;
         // นับสัดส่วนใบหน้าตั้งแต่เจอหน้าครั้งแรก (ช่วงจัดท่าก่อนหน้านั้นไม่นับ)
         if (state === 'ok') { seenFace = true; okFrames++; okMs += dt; }
         if (seenFace) frames++;
@@ -769,11 +810,15 @@
         prog.style.strokeDashoffset = String(100 - (okMs / SCAN_MS) * 100);
         ov.classList.toggle('face-ok', state === 'ok');
         cnt.textContent = Math.ceil(remain / 1000) || '';
+        const waited = now - t0;
         st.textContent = !detector ? 'ค้างไว้นิ่งๆ… (ระบบตรวจใบหน้าไม่พร้อม จะแจ้งผู้ดูแลตรวจสอบ)'
-          : state === 'ok' ? 'พบใบหน้า ค้างไว้นิ่งๆ…'
+          : state === 'ok' ? 'พบใบหน้าแล้ว ค้างไว้นิ่งๆ ไม่ต้องขยับ…'
           : state === 'many' ? 'พบหลายใบหน้า ให้มีเพียงคุณคนเดียวในกล้อง'
-          : state === 'far' ? 'ขยับหน้าเข้าใกล้กล้องอีกนิด'
-          : 'หันหน้าเข้ากล้องให้อยู่ในกรอบ';
+          : state === 'far' ? 'ขยับมือถือเข้าใกล้หน้าอีกนิด ให้หน้าเต็มกรอบวงรี'
+          : state === 'offcenter' ? 'เลื่อนหน้าให้อยู่กลางกรอบวงรี'
+          : dark ? 'แสงน้อยเกินไป ไปที่สว่างขึ้น หรือหันหน้าเข้าหาแสง'
+          : waited > 8000 ? 'ยังไม่เจอใบหน้า: หน้าตรง ไม่ย้อนแสง ถอดหน้ากาก/แว่นดำ แล้วค้างไว้นิ่งๆ'
+          : 'มองตรงเข้ากล้อง ให้หน้าอยู่ในกรอบวงรี';
 
         if (okMs >= SCAN_MS && now - t0 >= SCAN_MS) return finish(now - t0, okFrames / Math.max(1, frames));
         if (now - t0 > 90000) return fail('สแกนไม่สำเร็จภายในเวลา กรุณาลองใหม่ในที่มีแสงสว่าง');
@@ -785,14 +830,21 @@
 
       const finish = (elapsed, faceRatio) => capture(elapsed, faceRatio).catch((err) => fail(err.message || 'เกิดข้อผิดพลาด กรุณาสแกนใหม่'));
       const capture = async (elapsed, faceRatio) => {
-        // ถ่ายภาพจากกล้องจริง (ไม่กลับด้าน)
+        // ถ่ายภาพจากกล้องจริง: กลับด้านแบบกระจกให้เหมือนภาพที่เห็นตอนสแกน (และเหมือนแอปกล้องในมือถือ)
+        // ภาพแนวนอนจะตัดเป็นแนวตั้ง 3:4 ตรงกลาง ไม่ยืด/บีบภาพ
         const vw = video.videoWidth;
         const vh = video.videoHeight;
-        const scale = Math.min(1, 1280 / Math.max(vw, vh));
+        const sw = vw > vh * 0.75 ? Math.round(vh * 0.75) : vw;
+        const sx = Math.round((vw - sw) / 2);
+        const scale = Math.min(1, 1280 / Math.max(sw, vh));
         const c = document.createElement('canvas');
-        c.width = Math.round(vw * scale);
+        c.width = Math.round(sw * scale);
         c.height = Math.round(vh * scale);
-        c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+        const g = c.getContext('2d');
+        g.translate(c.width, 0);
+        g.scale(-1, 1);
+        g.drawImage(video, sx, 0, sw, vh, 0, 0, c.width, c.height);
+        g.setTransform(1, 0, 0, 1, 0, 0);
         const shotAt = new Date(serverStart + elapsed);
         stream?.getTracks().forEach((t) => t.stop());
 
@@ -866,7 +918,6 @@
       try {
         const saved = await api('/api/attendance', s.payload);
         scanStatus = null;
-        scanOverride = null;
         const rows = [
           ['ชื่อ', me.name], ['วันที่ทำงาน', thDate(saved.work_date)], ['เวลา', `${fmtClock(new Date(saved.captured_at))} น.`],
           ['สถานที่', saved.location], ['รหัสตรวจสอบ', saved.verify_code],

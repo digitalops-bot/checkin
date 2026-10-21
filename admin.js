@@ -881,7 +881,7 @@
       <div class="settings-grid">
         <form class="card sites-card" id="locf">
           <h2>สถานที่ทำงาน (พิกัด GPS)</h2>
-          <p class="muted">ระบบจะดึงชื่อสถานที่ใส่ในรูปอัตโนมัติจากพิกัดที่พนักงานสแกน ถ้าอยู่นอกรัศมีจะแจ้งเตือน "นอกพื้นที่"
+          <p class="muted">พนักงานพิมพ์ชื่อสถานที่เองทุกครั้งที่สแกน (ชื่อในรายการนี้จะขึ้นเป็นคำแนะนำตอนพิมพ์) · ถ้าใส่พิกัดไว้ ระบบจะวัดระยะจากพิกัดจริง ถ้าอยู่นอกรัศมีจะแจ้งเตือน "นอกพื้นที่"
             · คัดลอกพิกัดจาก Google Maps (คลิกขวาที่จุด → คลิกตัวเลขพิกัด) มาวางได้เลย</p>
           <p class="hint">⚠ ควรใส่พิกัดให้ครบทุกสถานที่ ถ้ามีบางแห่งไม่มีพิกัด พนักงานที่อยู่แห่งนั้นจะถูกจับคู่กับสถานที่ใกล้สุดที่มีพิกัด และขึ้นว่า "นอกพื้นที่"</p>
           <div id="siteRows"></div>
@@ -894,6 +894,35 @@
           <h2>ลิงก์สำหรับพนักงาน</h2><p class="muted">ส่งลิงก์นี้ให้พนักงานเปิดในมือถือ แล้วกด “เพิ่มลงในหน้าจอหลัก” เพื่อใช้เป็นแอป</p>
           <div class="link-box"><input id="empUrl" value="${esc(empUrl)}" readonly><button class="btn ghost" id="copy" type="button">คัดลอก</button></div>
         </div>
+        <form class="card tg-card" id="tgf" autocomplete="off">
+          <h2>ส่งรูปสแกนไป Telegram</h2>
+          <p class="muted">ทุกครั้งที่พนักงานสแกน ระบบส่งรูปพร้อมชื่อ เวลา สถานที่ และพิกัดเข้าช่อง Telegram ให้อัตโนมัติ
+            · แนะนำใช้ <b>ช่อง (Channel)</b> เพราะสมาชิกดูได้อย่างเดียว ส่งรูปหรือข้อความไม่ได้ · บอทไม่รับคำสั่งใดๆ สั่งงานได้จากหน้านี้เท่านั้น</p>
+          <details class="tg-help"><summary>วิธีตั้งค่าครั้งแรก (ประมาณ 5 นาที)</summary>
+            <ol>
+              <li>ใน Telegram ค้นหา <b>@BotFather</b> → กด Start → พิมพ์ <code>/newbot</code> → ตั้งชื่อบอท → ตั้งชื่อผู้ใช้ที่ลงท้ายด้วย <code>bot</code> → คัดลอก <b>Token</b> ที่ได้มาวางในช่องด้านล่าง</li>
+              <li>สร้าง <b>ช่อง (New Channel)</b> แบบส่วนตัว (Private) เช่น "รูปลงเวลา"</li>
+              <li>เข้าช่อง → ตั้งค่า → ผู้ดูแล (Administrators) → เพิ่มผู้ดูแล → ค้นหาชื่อบอท → เปิดสิทธิ์ <b>โพสต์ข้อความ</b></li>
+              <li>โพสต์ข้อความอะไรก็ได้ 1 ครั้งในช่อง แล้วกด <b>ค้นหากลุ่ม/ช่อง</b> ด้านล่าง → เลือกช่อง</li>
+              <li>กด <b>ส่งข้อความทดสอบ</b> → เลือกว่าจะส่งรูปเมื่อไร → กด <b>บันทึก</b></li>
+              <li>ส่งลิงก์เชิญของช่องให้พนักงาน พนักงานจะดูรูปได้อย่างเดียว</li>
+            </ol></details>
+          <label class="field"><span>Bot Token</span><input name="token" type="password" autocomplete="new-password" spellcheck="false"></label>
+          <div class="row" style="flex-wrap:wrap;gap:8px;margin:-4px 0 10px"><button class="btn ghost sm" type="button" id="tgFind">ค้นหากลุ่ม/ช่อง</button></div>
+          <div id="tgChats" class="tg-chats"></div>
+          <label class="field"><span>Chat ID ของช่อง/กลุ่ม</span><input name="chat_id" placeholder="-1001234567890" spellcheck="false"></label>
+          <div class="tg-modes">
+            <label><input type="radio" name="mode" value="all"> ส่งทั้งเข้างานและออกงาน</label>
+            <label><input type="radio" name="mode" value="in"> ส่งเฉพาะเข้างาน</label>
+            <label><input type="radio" name="mode" value="off"> ไม่ส่ง (ปิด)</label>
+          </div>
+          <div id="tgState" class="tg-state">กำลังโหลด…</div>
+          <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:12px">
+            <button class="btn ghost" type="button" id="tgTest">ส่งข้อความทดสอบ</button>
+            <button class="btn primary" type="submit">บันทึก</button>
+            <button class="btn ghost" type="button" id="tgClear">ลบการเชื่อมต่อ</button>
+          </div>
+        </form>
         <form class="card reset-card" id="rsf">
           <h2>ล้างข้อมูล (สำหรับทดสอบระบบ)</h2>
           <p class="muted">ใช้ล้างข้อมูลที่ทดลองไว้ก่อนเปิดให้พนักงานใช้จริง · <b>การตั้งค่าจะไม่ถูกลบ</b> (รหัสผ่านผู้ดูแล, สถานที่ทำงาน, ตารางกะ, วันหยุด)</p>
@@ -1042,6 +1071,46 @@
     };
     document.getElementById('copy').onclick = async () => {
       try { await navigator.clipboard.writeText(empUrl); toast('คัดลอกลิงก์แล้ว'); } catch { document.getElementById('empUrl').select(); }
+    };
+    // ---- Telegram ----
+    const tgf = document.getElementById('tgf');
+    const tgState = document.getElementById('tgState');
+    const tgShow = (t) => {
+      tgf.mode.forEach((r) => (r.checked = r.value === t.mode));
+      tgf.chat_id.value = t.chat_id || '';
+      tgf.token.value = '';
+      tgf.token.placeholder = t.has_token ? `บันทึกไว้แล้ว (${t.token_hint}) · พิมพ์ใหม่ถ้าต้องการเปลี่ยน` : '123456789:AAH…';
+      const st = [];
+      st.push(t.mode === 'off' || !t.has_token ? '<span class="badge">ปิดอยู่</span>' : `<span class="badge approved">เปิด · ${t.mode === 'in' ? 'เฉพาะเข้างาน' : 'เข้างานและออกงาน'}</span>`);
+      if (t.last_ok_at) st.push(`<span class="sub">ส่งสำเร็จล่าสุด ${esc(thDateTime(t.last_ok_at))}</span>`);
+      if (t.last_error) st.push(`<div class="tg-err">⚠ ส่งไม่สำเร็จล่าสุด ${esc(thDateTime(t.last_error_at))}: ${esc(t.last_error)}</div>`);
+      tgState.innerHTML = st.join(' ');
+    };
+    api('/api/admin/telegram').then(tgShow).catch((e) => { tgState.textContent = e.message; });
+    const tgBusy = async (btn, fn) => { btn.disabled = true; try { await fn(); } catch (err) { toast(err.message, true); } finally { btn.disabled = false; } };
+    document.getElementById('tgFind').onclick = (e) => tgBusy(e.currentTarget, async () => {
+      const { chats } = await api('/api/admin/telegram/chats', { method: 'POST', body: { token: tgf.token.value.trim() } });
+      const box = document.getElementById('tgChats');
+      if (!chats.length) { box.innerHTML = '<div class="hint">ยังไม่พบ: เพิ่มบอทเป็นผู้ดูแลของช่อง/กลุ่ม แล้วโพสต์ข้อความอะไรก็ได้ 1 ครั้งในช่อง/กลุ่มนั้น แล้วกดค้นหาอีกครั้ง</div>'; return; }
+      box.innerHTML = chats.map((c) => `<button type="button" class="btn ghost sm" data-chat="${esc(c.id)}">${c.type === 'channel' ? '📢' : '👥'} ${esc(c.title)} <span class="sub">${esc(c.id)}</span></button>`).join(' ');
+      box.querySelectorAll('[data-chat]').forEach((b) => (b.onclick = () => { tgf.chat_id.value = b.dataset.chat; toast('เลือกแล้ว กด "บันทึก" เพื่อใช้งาน'); }));
+    });
+    document.getElementById('tgTest').onclick = (e) => tgBusy(e.currentTarget, async () => {
+      await api('/api/admin/telegram/test', { method: 'POST', body: { token: tgf.token.value.trim(), chat_id: tgf.chat_id.value.trim() } });
+      toast('ส่งข้อความทดสอบแล้ว ลองเปิดดูใน Telegram');
+    });
+    tgf.onsubmit = (e) => {
+      e.preventDefault();
+      tgBusy(tgf.querySelector('[type=submit]'), async () => {
+        const body = { chat_id: tgf.chat_id.value.trim(), mode: tgf.mode.value };
+        if (tgf.token.value.trim()) body.token = tgf.token.value.trim();
+        tgShow(await api('/api/admin/telegram', { method: 'PUT', body }));
+        toast('บันทึกการตั้งค่า Telegram แล้ว');
+      });
+    };
+    document.getElementById('tgClear').onclick = (e) => {
+      if (!confirm('ลบ Bot Token และปิดการส่งรูปไป Telegram?')) return;
+      tgBusy(e.currentTarget, async () => { tgShow(await api('/api/admin/telegram', { method: 'PUT', body: { clear_token: true, mode: 'off' } })); toast('ลบการเชื่อมต่อแล้ว'); });
     };
     // ---- ล้างข้อมูล ----
     const rsf = document.getElementById('rsf');
