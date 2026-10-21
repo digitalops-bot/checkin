@@ -269,3 +269,10 @@ body.sheet-open { overflow: hidden; }
 .tabbar button svg { width: 24px; height: 24px; }
 .tabbar button.active { color: var(--primary); background: var(--primary-soft); }
 @media (min-width: 600px) { .tabbar { max-width: 560px; margin: 0 auto; border-left: 1px solid var(--border); border-right: 1px solid var(--border); border-radius: 16px 16px 0 0; } }
+
+.success .pending-icon { background: var(--warn-soft); color: var(--warn); font-size: 34px; }
+.profile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.code-req { margin-top: 8px; padding: 8px 10px; border-radius: 10px; font-size: 14px; background: var(--surface-2); }
+.code-req.pending { background: var(--warn-soft); color: var(--warn); }
+.code-req.approved { background: var(--ok-soft); color: var(--ok); }
+.code-req.rejected { background: var(--bad-soft); color: var(--bad); }

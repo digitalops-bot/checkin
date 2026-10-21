@@ -234,10 +234,35 @@
       if (!ok) { f.querySelector('.invalid')?.focus(); return toast('กรุณาตรวจสอบข้อมูลที่ทำเครื่องหมายสีแดง', true); }
       const btn = document.getElementById('submit');
       busy(btn, true, 'กำลังลงทะเบียน…');
-      try { signIn(await api('/api/auth/register', d)); toast('ลงทะเบียนสำเร็จ'); }
+      try {
+        const r = await api('/api/auth/register', d);
+        if (r.pending) return renderPending(r.employee); // โหมดต้องรอผู้ดูแลอนุมัติ
+        signIn(r);
+        toast('ลงทะเบียนสำเร็จ');
+      }
       catch (err) { toast(err.message, true); busy(btn, false); }
     };
     f.querySelectorAll('.seg input').forEach((r) => (r.onchange = () => setErr(r, '')));
+  }
+
+  // ---------- สมัครแล้ว รอผู้ดูแลอนุมัติ ----------
+  function renderPending(emp) {
+    authLayout(true);
+    store.set('last_emp_code', emp.emp_code);
+    view.innerHTML = `
+      <div class="card success">
+        <div class="check pending-icon">⏳</div>
+        <h2>ส่งใบสมัครแล้ว</h2>
+        <p class="muted">กำลังรอผู้ดูแลอนุมัติ</p>
+        <dl>
+          <dt>ชื่อ</dt><dd>${esc(emp.name)}</dd>
+          <dt>รหัสพนักงาน</dt><dd>${esc(emp.emp_code)}</dd>
+          <dt>เบอร์โทร</dt><dd>${esc(emp.phone)}</dd>
+        </dl>
+        <p class="hint">เมื่อผู้ดูแลอนุมัติแล้ว ให้เข้าสู่ระบบด้วย <b>รหัสพนักงาน</b> และ <b>รหัสผ่าน</b> ที่ตั้งไว้ · ไม่ต้องสมัครซ้ำ</p>
+        <button class="btn primary big" id="toLogin">ไปหน้าเข้าสู่ระบบ</button>
+      </div>`;
+    document.getElementById('toLogin').onclick = renderLogin;
   }
 
   // ---------- Forgot password ----------
@@ -910,16 +935,102 @@
     };
   }
 
+  // ---------- เปลี่ยนเบอร์โทร / แจ้งรหัสพนักงานผิด ----------
+  const CODE_REQ_TH = { pending: 'รอผู้ดูแลพิจารณา', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ' };
+  let codeReq = null;
+  async function loadCodeRequest() {
+    try {
+      const { request } = await api('/api/me/code-request');
+      codeReq = request;
+      const box = document.getElementById('codeReqBox');
+      if (!box || !request) return;
+      // แสดงคำขอที่รออยู่ หรือผลที่ยังไม่ผ่านมานาน (7 วัน)
+      if (request.status !== 'pending' && Date.now() - Date.parse(request.created_at) > 7 * 86400000) return;
+      box.innerHTML = `<div class="code-req ${request.status}">คำขอแก้รหัสเป็น <b>${esc(request.new_code)}</b>: ${esc(CODE_REQ_TH[request.status])}
+        ${request.review_note ? `<div class="sub">ผู้ดูแล: ${esc(request.review_note)}</div>` : ''}</div>`;
+    } catch { /* ไม่แสดง */ }
+  }
+
+  function openPhoneSheet() {
+    const el = openSheet(`
+      <h2 class="sheet-title">เปลี่ยนเบอร์โทรศัพท์</h2>
+      <p class="hint" style="margin-top:0">เบอร์โทรใช้ตอนลืมรหัสผ่าน จึงต้องใส่รหัสผ่านปัจจุบันเพื่อยืนยันว่าเป็นคุณ</p>
+      <form id="pf" novalidate>
+        <label class="field"><span>เบอร์โทรเดิม</span><input value="${esc(me.phone)}" disabled></label>
+        <label class="field"><span>เบอร์โทรใหม่ <small>10 หลัก ขึ้นต้นด้วย 0</small></span>
+          <input name="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="0812345678" required></label>
+        ${pwField('password', 'รหัสผ่านปัจจุบัน', 'current-password')}
+        <button class="btn primary big" type="submit" id="pfBtn">บันทึกเบอร์ใหม่</button>
+      </form>
+      <button class="btn ghost big" data-close style="margin-top:10px">ยกเลิก</button>`);
+    const f = el.querySelector('#pf');
+    bindInputs(f);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const ok = setErr(f.phone, RULES.phone(f.phone.value)) & setErr(f.password, f.password.value ? '' : 'กรุณาใส่รหัสผ่าน');
+      if (!ok) return;
+      const btn = el.querySelector('#pfBtn');
+      busy(btn, true, 'กำลังบันทึก…');
+      try {
+        const r = await api('/api/me/phone', { phone: f.phone.value, password: f.password.value });
+        me = r.employee;
+        store.set('emp_profile', me);
+        closeSheet();
+        toast('เปลี่ยนเบอร์โทรแล้ว');
+        renderHistory();
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+  }
+
+  function openCodeSheet() {
+    if (codeReq?.status === 'pending') return toast(`มีคำขอแก้รหัสเป็น ${codeReq.new_code} รอผู้ดูแลพิจารณาอยู่แล้ว`, true);
+    const el = openSheet(`
+      <h2 class="sheet-title">แจ้งรหัสพนักงานผิด</h2>
+      <p class="hint" style="margin-top:0">ส่งคำขอให้ผู้ดูแลแก้รหัสพนักงาน เมื่ออนุมัติแล้ว ครั้งต่อไปให้เข้าสู่ระบบด้วยรหัสใหม่ (รหัสผ่านเดิม)</p>
+      <form id="cf" novalidate>
+        <label class="field"><span>รหัสปัจจุบัน</span><input value="${esc(me.emp_code)}" disabled></label>
+        <label class="field"><span>รหัสพนักงานที่ถูกต้อง <small>อักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข</small></span>
+          <input name="emp_code" autocapitalize="characters" spellcheck="false" maxlength="20" placeholder="เช่น EMP001" required></label>
+        <label class="field"><span>เหตุผล</span><textarea name="reason" maxlength="300" placeholder="เช่น ตอนสมัครพิมพ์รหัสผิด รหัสจริงตามบัตรพนักงานคือ ..."></textarea></label>
+        <button class="btn primary big" type="submit" id="cfBtn">ส่งคำขอ</button>
+      </form>
+      <button class="btn ghost big" data-close style="margin-top:10px">ยกเลิก</button>`);
+    const f = el.querySelector('#cf');
+    bindInputs(f);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      let ok = setErr(f.emp_code, RULES.emp_code(f.emp_code.value) || (f.emp_code.value === me.emp_code ? 'รหัสใหม่เหมือนรหัสเดิม' : ''));
+      ok = setErr(f.reason, f.reason.value.trim().length >= 3 ? '' : 'กรุณาบอกเหตุผล') && ok;
+      if (!ok) return;
+      const btn = el.querySelector('#cfBtn');
+      busy(btn, true);
+      try {
+        await api('/api/me/code-request', { new_code: f.emp_code.value, reason: f.reason.value.trim() });
+        closeSheet();
+        toast('ส่งคำขอแล้ว รอผู้ดูแลพิจารณา');
+        renderHistory();
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+  }
+
   // ---------- History + profile ----------
   async function renderHistory() {
     view.innerHTML = `
       <div class="card profile">
         ${whoChip()}
         <div class="muted">โทร ${esc(me.phone)}</div>
+        <div id="codeReqBox"></div>
+        <div class="profile-actions">
+          <button class="btn ghost sm" id="chPhone">เปลี่ยนเบอร์โทร</button>
+          <button class="btn ghost sm" id="chCode">แจ้งรหัสพนักงานผิด</button>
+        </div>
         <button class="linkbtn danger" id="logout">ออกจากระบบ</button>
       </div>
       <h1 class="screen-title"><span class="dot"></span>ประวัติของฉัน</h1>
       <div id="hist"><div class="card empty">กำลังโหลด…</div></div>`;
+    document.getElementById('chPhone').onclick = openPhoneSheet;
+    document.getElementById('chCode').onclick = openCodeSheet;
+    loadCodeRequest();
     document.getElementById('logout').onclick = async () => {
       if (!confirm('ออกจากระบบ?\nครั้งต่อไปต้องใส่รหัสพนักงานและรหัสผ่านใหม่')) return;
       await api('/api/auth/logout', {}).catch(() => {});
@@ -974,7 +1085,8 @@
   if (token && me) {
     startApp();
     // ตรวจสอบบัญชีเบื้องหลัง (ถ้าออฟไลน์ก็ยังใช้งานค้างไว้ได้)
-    api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); authLayout(false); }).catch(() => {});
+    // ถ้าผู้ดูแลแก้รหัส/เบอร์ให้ แอปจะอัปเดตเอง (รวมรหัสที่เติมไว้หน้าเข้าสู่ระบบ)
+    api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); store.set('last_emp_code', me.emp_code); authLayout(false); }).catch(() => {});
   } else {
     renderLogin();
   }

@@ -116,7 +116,7 @@
       <div class="shell">
         <aside class="side">
           <div class="brand"><img src="icon.svg" alt=""><div><b>ระบบลงเวลา</b><small>ผู้ดูแล · พนักงานนอก</small></div></div>
-          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}</button>`).join('')}
+          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
           <div class="spacer"></div>
           <button class="nav-btn" id="logout">${icon('out')}<span>ออกจากระบบ</span></button>
         </aside>
@@ -135,7 +135,7 @@
   }
   const setPending = (n) => setCount('pendingCount', n);
   // อัปเดตตัวเลขคำขอ OT / คำร้องที่รอพิจารณาบนเมนู
-  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); }).catch(() => {});
+  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); setCount('regCount', (d.registrations || 0) + (d.code_requests || 0)); }).catch(() => {});
 
   function go(id) {
     page = id;
@@ -357,6 +357,7 @@
         if (page !== 'dash') return;
         setPending(d.pending);
         setCount('appealCount', d.appeals);
+        setCount('regCount', (d.registrations || 0) + (d.code_requests || 0));
         const checkedIn = d.pairs.filter((p) => p.checkin).length;
         const noOut = d.pairs.filter((p) => p.status === 'no_checkout').length;
         const done = d.pairs.filter((p) => p.status === 'complete').length;
@@ -497,13 +498,64 @@
   function pageEmp() {
     const c = content();
     c.innerHTML = `<div class="page-head"><div><h1>พนักงาน</h1><p>พนักงานที่ลงทะเบียนผ่านแอป · ปิดใช้งานเพื่อไม่ให้เข้าระบบได้อีก</p></div></div>
+      <div class="card reg-card">
+        <label class="switch"><input type="checkbox" id="regSwitch" disabled><span class="slider"></span></label>
+        <div><b>สมัครแล้วต้องรอผู้ดูแลอนุมัติ</b>
+          <div class="muted" id="regText">กำลังโหลด…</div></div>
+      </div>
+      <div id="codeReqs"></div>
       <form class="card filters" id="ef">
         <label class="field f-q" style="flex:1;max-width:340px"><span>ค้นหา</span><input name="q" placeholder="รหัส ชื่อ หรือเบอร์โทร"></label>
         <div class="actions"><button class="btn primary" type="submit">ค้นหา</button>
           <button type="button" class="btn ghost" id="expEmp">${icon('dl')}ส่งออก Excel</button></div>
       </form><div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
     const ef = document.getElementById('ef');
+    const sw = document.getElementById('regSwitch');
+    const regText = (mode) => {
+      document.getElementById('regText').textContent = mode === 'approval'
+        ? 'เปิดอยู่: พนักงานที่สมัครใหม่ต้องรออนุมัติในหน้านี้ก่อน จึงจะเข้าสู่ระบบได้'
+        : 'ปิดอยู่: พนักงานสมัครแล้วเข้าใช้งานได้ทันที';
+    };
+    api('/api/admin/registration').then((r) => { sw.checked = r.mode === 'approval'; sw.disabled = false; regText(r.mode); }).catch((e) => toast(e.message, true));
+    sw.onchange = async () => {
+      const mode = sw.checked ? 'approval' : 'open';
+      sw.disabled = true;
+      try { await api('/api/admin/registration', { method: 'PUT', body: { mode } }); regText(mode); toast(mode === 'approval' ? 'เปิดโหมดรออนุมัติแล้ว' : 'ปิดโหมดรออนุมัติแล้ว'); }
+      catch (e) { sw.checked = !sw.checked; toast(e.message, true); }
+      sw.disabled = false;
+    };
+    const loadCodeReqs = async () => {
+      const box = document.getElementById('codeReqs');
+      if (!box) return;
+      try {
+        const { items } = await api('/api/admin/code-requests?status=pending');
+        if (!items.length) { box.innerHTML = ''; return; }
+        box.innerHTML = `<div class="card table-card code-reqs"><div class="table-head"><b>คำขอแก้รหัสพนักงาน (${items.length})</b></div><div class="table-wrap"><table>
+          <thead><tr><th>ชื่อ</th><th>รหัสเดิม → รหัสใหม่</th><th>เหตุผล</th><th>ส่งเมื่อ</th><th class="num">จัดการ</th></tr></thead>
+          <tbody>${items.map((r) => `<tr>
+            <td><b>${esc(r.name)}</b></td>
+            <td class="nowrap mono">${esc(r.old_code)} → <b>${esc(r.new_code)}</b></td>
+            <td>${esc(r.reason)}</td>
+            <td class="nowrap">${esc(thDateTime(r.created_at))}</td>
+            <td><div class="act"><button class="btn ok sm" data-cr="${r.id}" data-st="approved">อนุมัติ</button><button class="btn danger sm" data-cr="${r.id}" data-st="rejected">ไม่อนุมัติ</button></div></td>
+          </tr>`).join('')}</tbody></table></div></div>`;
+        box.querySelectorAll('[data-cr]').forEach((b) => (b.onclick = async () => {
+          let review_note = '';
+          if (b.dataset.st === 'rejected') {
+            review_note = prompt('เหตุผลที่ไม่อนุมัติ (พนักงานจะเห็นข้อความนี้)', '');
+            if (review_note === null) return;
+          }
+          try {
+            await api(`/api/admin/code-requests/${b.dataset.cr}`, { method: 'PATCH', body: { status: b.dataset.st, review_note } });
+            toast(b.dataset.st === 'approved' ? 'เปลี่ยนรหัสพนักงานแล้ว' : 'ไม่อนุมัติคำขอแล้ว');
+            refreshCounts();
+            load();
+          } catch (err) { toast(err.message, true); }
+        }));
+      } catch (err) { box.innerHTML = ''; toast(err.message, true); }
+    };
     const load = async () => {
+      loadCodeReqs();
       const q = ef.q.value.trim();
       document.getElementById('expEmp').onclick = () => Backend.download(`/api/admin/export/employees?${new URLSearchParams(q ? { q } : {})}`, 'employees.csv').catch((e) => toast(e.message, true));
       try {
@@ -511,25 +563,43 @@
         const t = document.getElementById('tbl');
         if (!t) return;
         if (!items.length) { t.innerHTML = '<div class="card empty">ยังไม่มีพนักงานลงทะเบียน</div>'; return; }
+        const waiting = items.filter((e) => e.status === 'pending').length;
         t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
           <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>ลงทะเบียนเมื่อ</th><th>ใช้งานล่าสุด</th><th class="num">อุปกรณ์</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
-          <tbody>${items.map((e) => `<tr>
+          <tbody>${items.map((e) => `<tr${e.status === 'pending' ? ' class="row-pending"' : ''}>
             <td class="t-time">${esc(e.emp_code)}</td>
             <td><b>${esc(e.title + e.first_name + ' ' + e.last_name)}</b></td>
             <td class="nowrap">${esc(e.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'))}</td>
             <td class="nowrap">${esc(thDateTime(e.created_at))}</td>
             <td class="nowrap">${e.last_seen_at ? esc(thDateTime(e.last_seen_at)) : '<span class="muted">–</span>'}</td>
             <td class="num">${e.devices}</td>
-            <td><span class="badge ${e.active ? 'approved' : 'rejected'}">${e.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</span></td>
-            <td><div class="act">
-              <button class="btn ghost sm" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสใหม่</button>
+            <td>${e.status === 'pending' ? '<span class="badge pending">รออนุมัติ</span>' : `<span class="badge ${e.active ? 'approved' : 'rejected'}">${e.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</span>`}</td>
+            <td><div class="act">${e.status === 'pending' ? `
+              <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
+              <button class="btn ok sm" data-approve="${e.id}" data-name="${esc(e.emp_code)}">อนุมัติ</button>
+              <button class="btn danger sm" data-reject="${e.id}" data-name="${esc(e.emp_code)}">ไม่อนุมัติ</button>` : `
+              <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
+              <button class="btn ghost sm" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสผ่านใหม่</button>
               <button class="btn ghost sm" data-phone="${e.id}" data-cur="${esc(e.phone)}">แก้เบอร์</button>
-              <button class="btn ${e.active ? 'danger' : 'ok'} sm" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+              <button class="btn ${e.active ? 'danger' : 'ok'} sm" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>`}
             </div></td></tr>`).join('')}</tbody></table></div>
-          <div class="table-foot"><span>${items.length} คน</span></div></div>`;
+          <div class="table-foot"><span>${items.length} คน${waiting ? ` · <b class="warn">รออนุมัติ ${waiting} คน</b>` : ''}</span></div></div>`;
         const patch = async (id, body, msg) => {
-          try { await api(`/api/admin/employees/${id}`, { method: 'PATCH', body }); toast(msg); load(); } catch (err) { toast(err.message, true); }
+          try { await api(`/api/admin/employees/${id}`, { method: 'PATCH', body }); toast(msg); load(); refreshCounts(); } catch (err) { toast(err.message, true); }
         };
+        t.querySelectorAll('[data-code]').forEach((b) => (b.onclick = () => {
+          const v = prompt(`แก้รหัสพนักงาน ${b.dataset.name} เป็น (อักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข)\nประวัติลงเวลา/OT/คำร้องเดิมจะเปลี่ยนเป็นรหัสใหม่ทั้งหมด\nพนักงานต้องใช้รหัสใหม่ตอนเข้าสู่ระบบครั้งถัดไป`, b.dataset.name);
+          if (v === null) return;
+          const code = v.trim().toUpperCase();
+          if (!/^[A-Z]+[0-9]+$/.test(code)) return toast('รหัสต้องเป็นอักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข เช่น EMP001', true);
+          if (code === b.dataset.name) return;
+          patch(b.dataset.code, { emp_code: code }, `เปลี่ยนรหัส ${b.dataset.name} เป็น ${code} แล้ว`);
+        }));
+        t.querySelectorAll('[data-approve]').forEach((b) => (b.onclick = () => patch(b.dataset.approve, { approve: true }, `อนุมัติ ${b.dataset.name} แล้ว เข้าสู่ระบบได้ทันที`)));
+        t.querySelectorAll('[data-reject]').forEach((b) => (b.onclick = () => {
+          if (!confirm(`ไม่อนุมัติใบสมัคร ${b.dataset.name}?\nใบสมัครจะถูกลบ (สมัครใหม่ด้วยข้อมูลที่ถูกต้องได้)`)) return;
+          patch(b.dataset.reject, { reject: true }, 'ลบใบสมัครแล้ว');
+        }));
         t.querySelectorAll('[data-active]').forEach((b) => (b.onclick = () => {
           const on = b.dataset.to === '1';
           if (!on && !confirm('ปิดใช้งานพนักงานคนนี้? เครื่องที่ล็อกอินไว้จะถูกออกจากระบบ')) return;

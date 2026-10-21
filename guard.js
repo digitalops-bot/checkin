@@ -51,7 +51,11 @@
   function unshield() { document.body.classList.remove('guarded'); }
   window.addEventListener('blur', () => { if (document.body.dataset.guard === 'strict') shield(); });
   window.addEventListener('focus', unshield);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) shield(); else if (document.hasFocus()) unshield(); });
+  // กลับมาที่แอป: หน้าพนักงานเปิดข้อมูลทันที / หน้าผู้ดูแล (strict) ต้องโฟกัสหน้าต่างก่อน
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) shield();
+    else if (document.body.dataset.guard !== 'strict' || document.hasFocus()) unshield();
+  });
   document.addEventListener('pointerdown', () => { if (document.hasFocus()) unshield(); });
 
   // ห้ามพิมพ์หน้าเว็บ
