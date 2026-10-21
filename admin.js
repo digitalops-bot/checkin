@@ -414,13 +414,14 @@
         const sumBy = (st) => items.filter((o) => o.status === st).reduce((s, o) => s + o.hours, 0);
         t.innerHTML = `
           <div class="card table-card"><div class="table-wrap"><table>
-            <thead><tr><th><input type="checkbox" id="all" aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>ชื่อ</th><th>ประเภท</th><th>เวลา</th><th class="num">ชั่วโมง</th><th>รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="all" aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>ชื่อ</th><th>ประเภท</th><th>สแกนจริง (เข้า–ออก)</th><th>เวลา OT ที่ขอ</th><th class="num">ชั่วโมง</th><th>รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
             <tbody>${items.map((o) => `
               <tr>
                 <td><input type="checkbox" class="sel" value="${o.id}" aria-label="เลือก"></td>
                 <td class="nowrap">${esc(thDate(o.ot_date))}<div class="sub">ส่ง ${esc(thDateTime(o.created_at))}</div></td>
                 <td><b>${esc(o.name)}</b>${codeSub(o.emp_code)}</td>
                 <td><span class="badge ot">OT ${esc(o.ot_type)}</span><div class="sub">${OT_LABEL[o.ot_type]}</div></td>
+                <td class="nowrap">${o.scan_in ? `<span class="t-time">${esc(o.scan_in)}–${esc(o.scan_out)}</span>${o.shift_name ? `<div class="sub">${esc(o.shift_name)}</div>` : ''}` : '<span class="muted">–</span>'}</td>
                 <td class="nowrap t-time">${esc(o.start_time)}–${esc(o.end_time)}</td>
                 <td class="num">${num(o.hours)}</td>
                 <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub">ผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</td>
@@ -809,10 +810,11 @@
       <div class="day-summary">
         <span class="badge day-${d.color}">${esc(d.color === 'excused' ? 'อนุมัติคำร้องแล้ว' : DAY_STATUS[d.status] || '–')}</span>
         ${d.shift ? `<span>${esc(d.shift.name)} ${esc(d.shift.start)}–${esc(d.shift.end)} น.</span>` : ''}
-        <span>เข้า <b>${esc(d.checkin || '—')}</b> · ออก <b>${esc(d.checkout || '—')}</b>${d.worked_hours != null ? ` · ${num(d.worked_hours)} ชม.` : ''}</span>
+        <span>สแกนจริง เข้า <b>${esc(d.checkin || '—')}</b> · ออก <b>${esc(d.checkout || '—')}</b>${d.worked_hours != null ? ` · ${num(d.worked_hours)} ชม.` : ''}</span>
+        ${d.calc_in ? `<span class="muted">คิดเวลางาน ${esc(d.calc_in)}–${esc(d.calc_out)}</span>` : ''}
       </div>
       ${d.issues.length ? `<div class="issue-box"><b>สาเหตุสีแดง:</b> ${d.issues.map((i) => esc(i.text)).join(', ')}</div>` : ''}
-      ${d.ot_detail.length ? `<div class="ot-box"><b>OT คำนวณจากเวลาสแกน:</b> ${d.ot_detail.map((o) => `OT ${esc(o.type)} ${esc(o.start)}–${esc(o.end)} = ${num(o.hours)} ชม.`).join(', ')} <span class="sub">(สร้างเป็นคำขอ OT ให้อนุมัติแล้ว)</span></div>` : ''}
+      ${d.ot_detail.length ? `<div class="ot-box"><b>เวลาทำงานเกิน (คิด OT ได้):</b> ${d.ot_detail.map((o) => `OT ${esc(o.type)} ${esc(o.start)}–${esc(o.end)} = ${num(o.hours)} ชม.`).join(', ')} <span class="sub">(คิด OT ได้ · พนักงานต้องกดขอเอง)</span></div>` : ''}
       ${d.appeal ? `<div class="appeal-box"><b>คำร้อง (${esc(APPEAL_TH[d.appeal.status])}):</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>
         ${d.appeal.review_note ? `<div class="sub">หมายเหตุผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}
         <div class="act" style="justify-content:flex-start;margin-top:8px">

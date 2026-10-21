@@ -408,7 +408,7 @@
         lastFix = toFix(p);
         onUpdate(lastFix);
       },
-      (err) => onUpdate(null, err.code === 1 ? 'ไม่ได้อนุญาตให้ใช้ตำแหน่ง กรุณาเปิดสิทธิ์ตำแหน่งที่ตั้งให้แอปนี้' : 'หาตำแหน่ง GPS ไม่ได้ กรุณาเปิด GPS แล้วลองใหม่'),
+      (err) => onUpdate(null, err.code === 1 ? 'ไม่ได้อนุญาตให้ใช้ตำแหน่ง กรุณาเปิดสิทธิ์ตำแหน่งที่ตั้งให้แอปนี้' : 'หาตำแหน่ง GPS ไม่ได้ กรุณาเปิด GPS ในมือถือแล้วลองใหม่', err.code),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
     );
   }
@@ -455,6 +455,7 @@
       <div class="card">
         ${whoChip()}
         <div class="live-clock"><small>เวลาจริงจากระบบ (ตั้งเองไม่ได้)</small><b id="lc">--:--:--</b><span id="ld"></span></div>
+        <div id="permBox"></div>
         <div class="info-row" id="gpsRow"><span class="ico">📍</span><div><b>พิกัด GPS</b><div id="gpsText" class="muted">กำลังหาตำแหน่ง…</div></div></div>
         <div class="info-row" id="siteRow"><span class="ico">🏢</span><div><b>สถานที่ทำงาน</b><div id="siteText" class="muted">รอพิกัด GPS…</div></div></div>
         <label class="field" id="siteChoose" hidden><span>เลือกสถานที่ทำงาน</span><select name="site"><option value="">— เลือกสถานที่ —</option></select></label>
@@ -500,13 +501,21 @@
           siteChoose.hidden = false;
         }
       }
-      scanBtn.disabled = false;
+      scanBtn.disabled = permBlocked;
     };
 
+    renderPermBox();
     loadSites().then(refresh);
-    startGps((fix, err) => {
+    startGps((fix, err, code) => {
       if (!document.getElementById('gpsText')) return stopGps();
-      if (err) { gpsText.innerHTML = `<span class="bad">${esc(err)}</span>`; scanBtn.disabled = true; return; }
+      if (err) {
+        gpsText.innerHTML = `<span class="bad">${esc(err)}</span>`;
+        document.getElementById('gpsRow').classList.add('row-bad');
+        scanBtn.disabled = true;
+        if (code === 1) renderPermBox(true);
+        return;
+      }
+      document.getElementById('gpsRow').classList.remove('row-bad');
       refresh();
     });
     if (lastFix && Date.now() - lastFix.got < 60000) refresh();
@@ -519,6 +528,77 @@
       if (choice) store.set('last_location', choice);
       runScanner(mode, choice);
     };
+  }
+
+  // ---------- สิทธิ์ตำแหน่ง / กล้อง ----------
+  let permBlocked = false;
+  const permWatch = {};
+  async function permState(name) {
+    try {
+      const st = await navigator.permissions.query({ name });
+      // ผู้ใช้เปลี่ยนสิทธิ์ในตั้งค่า → อัปเดตกล่องสถานะทันที
+      if (!permWatch[name]) { permWatch[name] = true; st.onchange = () => { if (current === 'in' || current === 'out') renderAttendance(current); }; }
+      return st.state;
+    } catch { return 'unknown'; } // เบราว์เซอร์บางรุ่น (เช่น Safari รุ่นเก่า) ไม่บอกสถานะ
+  }
+  async function renderPermBox(gpsDenied = false) {
+    const box = document.getElementById('permBox');
+    if (!box) return;
+    let geo = await permState('geolocation');
+    const cam = await permState('camera');
+    if (gpsDenied) geo = 'denied';
+    if (!document.getElementById('permBox')) return;
+    const denied = [geo === 'denied' && 'ตำแหน่ง (GPS)', cam === 'denied' && 'กล้อง'].filter(Boolean);
+    const scanBtn = document.getElementById('scanBtn');
+    permBlocked = denied.length > 0;
+    if (permBlocked) {
+      scanBtn.disabled = true;
+      box.innerHTML = `<div class="perm-box denied">
+        <b>⛔ ไม่ได้อนุญาต${denied.join(' และ ')}</b>
+        <div>ลงเวลาไม่ได้จนกว่าจะเปิดสิทธิ์ เพราะระบบต้องใช้รูปและพิกัดตอนสแกน</div>
+        <div class="perm-actions"><button class="btn danger sm" id="permHow">วิธีเปิดสิทธิ์</button><button class="btn ghost sm" id="permRetry">ลองอีกครั้ง</button></div>
+      </div>`;
+    } else if (geo === 'prompt' || cam === 'prompt') {
+      box.innerHTML = `<div class="perm-box ask">
+        <b>แอปต้องใช้ตำแหน่งและกล้องตอนสแกน</b>
+        <div>กดปุ่มด้านล่าง แล้วเลือก <b>"อนุญาต"</b> (ถ้ามีตัวเลือก ให้เลือก <b>"อนุญาตทุกครั้ง / ขณะใช้แอป"</b> จะได้ไม่ต้องถามบ่อย)</div>
+        <div class="perm-actions"><button class="btn primary sm" id="permAsk">อนุญาตตำแหน่งและกล้อง</button><button class="btn ghost sm" id="permHow">วิธีตั้งให้อนุญาตตลอด</button></div>
+      </div>`;
+    } else if (geo === 'granted' && cam === 'granted') {
+      box.innerHTML = '<div class="perm-box ok">✅ อนุญาตตำแหน่งและกล้องแล้ว</div>';
+    } else {
+      box.innerHTML = '<div class="perm-link"><button class="linkbtn" id="permHow">ไม่อยากให้ถามสิทธิ์บ่อย? ตั้งให้อนุญาตตลอด</button></div>';
+    }
+    box.querySelector('#permHow')?.addEventListener('click', openPermGuide);
+    box.querySelector('#permRetry')?.addEventListener('click', () => renderAttendance(current));
+    box.querySelector('#permAsk')?.addEventListener('click', requestPerms);
+  }
+  async function requestPerms() {
+    const btn = document.getElementById('permAsk');
+    if (btn) busy(btn, true, 'กำลังขอสิทธิ์…');
+    await new Promise((res) => navigator.geolocation.getCurrentPosition(() => res(), () => res(), { enableHighAccuracy: true, timeout: 15000 }));
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      st.getTracks().forEach((t) => t.stop());
+    } catch { /* ผู้ใช้ไม่อนุญาต → กล่องจะเป็นสีแดง */ }
+    if (current === 'in' || current === 'out') renderAttendance(current);
+  }
+  function openPermGuide() {
+    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    openSheet(`
+      <h2 class="sheet-title">ตั้งให้อนุญาตตำแหน่งและกล้องตลอด</h2>
+      <p class="hint" style="margin-top:0">ตั้งครั้งเดียว มือถือจะไม่ถามสิทธิ์ซ้ำทุกครั้งที่สแกน · ต้องเปิด GPS ของมือถือไว้ด้วย</p>
+      <div class="guide ${ios ? '' : 'first'}"><b>📱 Android (Chrome)</b><ol>
+        <li>แตะไอคอน <b>🔒 หรือ ⓘ</b> หน้าช่องที่อยู่เว็บด้านบน → <b>สิทธิ์ (Permissions)</b></li>
+        <li><b>ตำแหน่ง</b> → <b>อนุญาต</b> · <b>กล้อง</b> → <b>อนุญาต</b></li>
+        <li>ถ้าติดตั้งแอปไว้ที่หน้าจอหลัก: <b>ตั้งค่ามือถือ → แอป → Chrome → สิทธิ์</b> → ตำแหน่ง <b>"อนุญาตขณะใช้แอป"</b> และเปิด <b>"ใช้ตำแหน่งที่แม่นยำ"</b>, กล้อง <b>"อนุญาตขณะใช้แอป"</b></li>
+      </ol></div>
+      <div class="guide ${ios ? 'first' : ''}"><b>🍎 iPhone (Safari)</b><ol>
+        <li><b>ตั้งค่า → ความเป็นส่วนตัวและความปลอดภัย → บริการหาตำแหน่ง</b> → เปิด → <b>เว็บไซต์ Safari</b> → <b>"ขณะใช้แอป"</b> และเปิด <b>"ตำแหน่งที่แน่นอน"</b></li>
+        <li><b>ตั้งค่า → Safari</b> → เลื่อนลงที่ "การตั้งค่าสำหรับเว็บไซต์" → <b>กล้อง: อนุญาต</b> และ <b>ตำแหน่ง: อนุญาต</b></li>
+        <li>หรือในหน้าแอป แตะ <b>"AA"</b> ที่ช่องที่อยู่ → <b>การตั้งค่าเว็บไซต์</b> → กล้องและตำแหน่ง: <b>อนุญาต</b></li>
+      </ol></div>
+      <button class="btn primary big" data-close>เข้าใจแล้ว</button>`);
   }
 
   // ---------- หน้าจอสแกนใบหน้า 5 วินาที ----------
@@ -720,8 +800,17 @@
         ];
         if (saved.day?.shift) rows.push(['กะ', `${saved.day.shift.name} (${saved.day.shift.start}–${saved.day.shift.end} น.)`]);
         if (saved.day?.issues?.length) rows.push(['หมายเหตุ', saved.day.issues.map((i) => i.text).join(', ')]);
-        for (const o of saved.auto_ot || []) rows.push([`OT ${o.type} อัตโนมัติ`, `${o.start}–${o.end} น. = ${o.hours} ชม. (รออนุมัติ)`]);
+        for (const o of saved.ot_available || []) rows.push([`ทำเกินเวลา (OT ${o.type})`, `${o.start}–${o.end} น. = ${o.hours} ชม. · ถ้าทำ OT กด “ขอ OT”`]);
         renderSuccess(`${s.label}สำเร็จ`, rows, s.photo);
+        // ทำงานเกินเวลา → แนะนำให้ขอ OT (ระบบไม่ขอให้เอง)
+        if (saved.ot_available?.length) {
+          const b = document.createElement('button');
+          b.className = 'btn primary big';
+          b.style.marginBottom = '10px';
+          b.textContent = 'ขอ OT ของวันนี้';
+          b.onclick = () => { otDate = saved.work_date; go('ot'); };
+          document.getElementById('back').before(b);
+        }
       } catch (err) {
         toast(err.message, true);
         busy(btn, false);
@@ -731,67 +820,78 @@
     window.scrollTo(0, 0);
   }
 
-  // ---------- OT ----------
-  function renderOT() {
+  // ---------- OT: เลือกวัน → ระบบคำนวณจากเวลาสแกน → ติ๊กรายการที่ต้องการขอ ----------
+  const OT_DESC = Object.fromEntries(OT_TYPES.map((t) => [t.v, t.desc]));
+  let otDate = null;
+  function renderOT(date) {
+    otDate = date || otDate || today();
     view.innerHTML = `
       <h1 class="screen-title ot"><span class="dot"></span>ขอทำโอที (OT)</h1>
-      <form class="card" id="f" novalidate>
+      <div class="card">
         ${whoChip()}
         <label class="field"><span>วันที่ทำโอที</span>
-          <input type="date" name="ot_date" value="${today()}" required></label>
-        <div class="field"><span class="field-label">ประเภทโอที</span>
-          <div class="ot-types" role="radiogroup">
-            ${OT_TYPES.map((t) => `
-              <label class="ot-type"><input type="radio" name="ot_type" value="${t.v}">
-                <span class="rate">${t.v}</span><span><b>${t.title}</b><small>${t.desc}</small></span></label>`).join('')}
-          </div></div>
-        <div class="grid-2">
-          <label class="field"><span>เริ่มโอที</span><input type="time" name="start_time" required></label>
-          <label class="field"><span>สิ้นสุดโอที</span><input type="time" name="end_time" required></label>
-        </div>
-        <label class="field"><span>จำนวนชั่วโมง <small>(คำนวณให้อัตโนมัติ แก้ไขได้)</small></span>
-          <input type="number" name="hours" min="0.5" max="24" step="0.5" inputmode="decimal" placeholder="0"></label>
-        <label class="field"><span>รายละเอียดงาน <small>(ไม่บังคับ)</small></span>
-          <textarea name="note" maxlength="500" placeholder="งานที่ทำช่วงโอที"></textarea></label>
-        <button class="btn primary big" type="submit" id="submit">ส่งคำขอ OT</button>
-      </form>`;
+          <input type="date" id="otDate" value="${otDate}" max="${today()}"></label>
+        <div id="otBody"><div class="empty">กำลังคำนวณจากเวลาสแกน…</div></div>
+      </div>
+      <p class="hint">ระบบคำนวณ OT จากเวลาสแกนจริงให้เอง ไม่ต้องกรอกเวลา · มาก่อนเวลานับตั้งแต่เริ่มกะ · เวลาออก OT ปัดลงทีละ 30 นาที (เช่น 20:03 → 20:00)</p>`;
+    const inp = document.getElementById('otDate');
+    inp.onchange = () => { if (inp.value) renderOT(inp.value); };
+    loadOtPreview();
+  }
 
-    const f = document.getElementById('f');
-    let hoursEdited = false;
-    const recalc = () => { if (!hoursEdited) { const h = diffHours(f.start_time.value, f.end_time.value); f.hours.value = h === '' ? '' : h; } };
-    f.start_time.oninput = recalc;
-    f.end_time.oninput = recalc;
-    f.hours.oninput = () => { hoursEdited = f.hours.value !== ''; };
-
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      const data = {
-        ot_date: f.ot_date.value,
-        ot_type: f.ot_type.value,
-        start_time: f.start_time.value,
-        end_time: f.end_time.value,
-        hours: f.hours.value ? Number(f.hours.value) : null,
-        note: f.note.value.trim(),
-      };
-      if (!data.ot_date) return toast('กรุณาเลือกวันที่ทำโอที', true);
-      if (!data.ot_type) return toast('กรุณาเลือกประเภทโอที', true);
-      if (!data.start_time || !data.end_time) return toast('กรุณาเลือกเวลาเริ่มและสิ้นสุดโอที', true);
-      if (data.hours !== null && !(data.hours > 0 && data.hours <= 24)) return toast('จำนวนชั่วโมงไม่ถูกต้อง', true);
-
-      const btn = document.getElementById('submit');
-      busy(btn, true);
-      try {
-        const saved = await api('/api/ot', data);
-        const t = OT_TYPES.find((x) => x.v === data.ot_type);
-        renderSuccess('ส่งคำขอ OT แล้ว', [
-          ['ชื่อ', me.name], ['วันที่', thDate(data.ot_date)], ['ประเภท', `${t.title} · ${t.desc}`],
-          ['เวลา', `${data.start_time} – ${data.end_time} น.`], ['ชั่วโมง', `${saved.hours} ชม.`], ['สถานะ', 'รออนุมัติ'],
-        ]);
-      } catch (err) {
-        toast(err.message, true);
-        busy(btn, false);
+  async function loadOtPreview() {
+    const box = document.getElementById('otBody');
+    try {
+      const pv = await api(`/api/me/ot-preview?date=${otDate}`);
+      if (current !== 'ot' || !document.getElementById('otBody')) return;
+      const dayType = pv.holiday_name ? `<span class="badge purple-badge">วันหยุด · ${esc(pv.holiday_name)}</span>` : '<span class="badge in">วันทำงานปกติ</span>';
+      const times = `
+        <div class="ot-times">
+          <div>${dayType}${pv.shift ? ` <span class="muted">${esc(pv.shift.name)} ${esc(pv.shift.start)}–${esc(pv.shift.end)} น.</span>` : ''}</div>
+          <dl class="kv">
+            <dt>สแกนเข้า (จริง)</dt><dd>${pv.scan_in ? `${esc(pv.scan_in)} น.` : '<span class="bad">ไม่มี</span>'}${pv.calc_in && pv.calc_in !== pv.scan_in ? ` <span class="muted">→ นับเป็น ${esc(pv.calc_in)}</span>` : ''}</dd>
+            <dt>สแกนออก (จริง)</dt><dd>${pv.scan_out ? `${esc(pv.scan_out)} น.` : '<span class="bad">ไม่มี</span>'}${pv.calc_out && pv.calc_out !== pv.scan_out ? ` <span class="muted">→ เลิกงาน ${esc(pv.calc_out)}</span>` : ''}</dd>
+          </dl>
+        </div>`;
+      if (pv.reason) {
+        box.innerHTML = `${times}<div class="${pv.reason === 'no_ot' ? 'info-box' : 'issue-box'}">${esc(pv.reason_text)}</div>
+          ${pv.reason !== 'no_ot' && pv.reason !== 'no_checkout' ? '<button class="btn ghost big" id="toCal">ไปที่ปฏิทินเพื่อยื่นคำร้อง</button>' : ''}`;
+        document.getElementById('toCal')?.addEventListener('click', () => go('cal'));
+        return;
       }
-    };
+      const free = pv.items.filter((i) => !i.request);
+      box.innerHTML = `${times}
+        <div class="field-label" style="margin:14px 0 8px">รายการ OT ที่ขอได้ <small class="muted">(ติ๊กเฉพาะที่ทำ OT จริง)</small></div>
+        <div class="ot-items">${pv.items.map((i) => `
+          <label class="ot-item${i.request ? ' done' : ''}">
+            <input type="checkbox" name="ot" value="${esc(i.type)}" ${i.request ? 'disabled' : 'checked'}>
+            <span class="rate">${esc(i.type)}</span>
+            <span><b>OT ${esc(i.type)} · ${esc(i.start)}–${esc(i.end)} น. = ${i.hours} ชม.</b><small>${esc(OT_DESC[i.type] || '')}</small>
+              ${i.request ? `<span class="badge ${i.request.status}">ขอแล้ว · ${STATUS_TH[i.request.status]}</span>` : ''}</span>
+          </label>`).join('')}</div>
+        ${free.length ? `
+          <label class="field" style="margin-top:12px"><span>รายละเอียดงาน <small>(ไม่บังคับ)</small></span>
+            <textarea id="otNote" maxlength="500" placeholder="งานที่ทำช่วงโอที"></textarea></label>
+          <button class="btn primary big" id="otSend">ส่งคำขอ OT</button>` : '<div class="info-box">ขอ OT ของวันนี้ครบแล้ว ดูสถานะได้ที่เมนูประวัติ</div>'}`;
+      const send = document.getElementById('otSend');
+      if (!send) return;
+      send.onclick = async () => {
+        const types = [...box.querySelectorAll('input[name=ot]:checked:not(:disabled)')].map((c) => c.value);
+        if (!types.length) return toast('กรุณาติ๊กรายการ OT ที่ต้องการขอ', true);
+        busy(send, true);
+        try {
+          const r = await api('/api/ot', { ot_date: otDate, types, note: document.getElementById('otNote').value.trim() });
+          renderSuccess('ส่งคำขอ OT แล้ว', [
+            ['ชื่อ', me.name], ['วันที่', thDate(otDate)],
+            ['สแกนจริง', `${r.scan_in} – ${r.scan_out} น.`],
+            ...r.created.map((o) => [`OT ${o.ot_type}`, `${o.start_time}–${o.end_time} น. = ${o.hours} ชม.`]),
+            ['สถานะ', 'รอผู้ดูแลอนุมัติ'],
+          ]);
+        } catch (err) { toast(err.message, true); busy(send, false); }
+      };
+    } catch (err) {
+      if (box) box.innerHTML = `<div class="issue-box">${esc(err.message)}</div>`;
+    }
   }
 
   // ---------- Success ----------
@@ -902,12 +1002,12 @@
         ${d.appeal ? `<span class="badge ${d.appeal.status}">${esc(APPEAL_TH[d.appeal.status])}</span>` : ''}</div>
       <dl class="kv">
         ${d.shift ? `<dt>กะ</dt><dd>${esc(d.shift.name)} (${esc(d.shift.start)}–${esc(d.shift.end)} น.)</dd>` : ''}
-        <dt>สแกนเข้างาน</dt><dd>${d.checkin ? `${esc(d.checkin)} น.` : '<span class="bad">ไม่มี</span>'}</dd>
-        <dt>สแกนออกงาน</dt><dd>${d.checkout ? `${esc(d.checkout)} น.` : '<span class="bad">ไม่มี</span>'}</dd>
+        <dt>สแกนเข้างาน</dt><dd>${d.checkin ? `${esc(d.checkin)} น.${d.calc_in && d.calc_in !== d.checkin ? ` <span class="muted">(นับเป็น ${esc(d.calc_in)})</span>` : ''}` : '<span class="bad">ไม่มี</span>'}</dd>
+        <dt>สแกนออกงาน</dt><dd>${d.checkout ? `${esc(d.checkout)} น.${d.calc_out && d.calc_out !== d.checkout ? ` <span class="muted">(เลิกงาน ${esc(d.calc_out)})</span>` : ''}` : '<span class="bad">ไม่มี</span>'}</dd>
         ${d.worked_hours != null ? `<dt>เวลาทำงาน</dt><dd>${d.worked_hours} ชม.</dd>` : ''}
       </dl>
       ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul></div>` : ''}
-      ${otRows ? `<div class="ot-box"><b>OT ที่ระบบคำนวณให้</b><ul>${otRows}</ul><small>ส่งเป็นคำขอ OT ให้ผู้ดูแลอนุมัติแล้ว</small></div>` : ''}
+      ${otRows ? `<div class="ot-box"><b>เวลาทำงานเกิน (คิดเป็น OT ได้)</b><ul>${otRows}</ul><small>ถ้าทำ OT จริง ต้องกดขอ OT เอง</small><button class="btn primary sm" id="askOt" style="margin-top:8px">ขอ OT ของวันนี้</button></div>` : ''}
       ${d.appeal ? `<div class="appeal-box"><b>คำร้องของคุณ:</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>
         ${d.appeal.review_note ? `<div class="sub">ผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}</div>` : ''}
       ${canAppeal ? `
@@ -919,6 +1019,7 @@
           <button class="btn primary big" type="submit" id="apBtn">ส่งคำร้อง</button>
         </form>` : ''}
       <button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>`);
+    el.querySelector('#askOt')?.addEventListener('click', () => { otDate = d.date; go('ot'); });
     const f = el.querySelector('#apf');
     if (!f) return;
     f.onsubmit = async (e) => {
@@ -1048,7 +1149,7 @@
             <div class="meta">${esc(a.location)}${a.verify_code ? ` · รหัสตรวจสอบ ${esc(a.verify_code)}` : ''}</div></div></div>` })),
         ...ot.map((o) => ({ at: o.created_at, html: `
           <div class="card hist-item"><div class="main">
-            <div class="top"><span><span class="badge ot">OT ${esc(o.ot_type)}</span>${o.source === 'auto' ? ' <span class="badge">คำนวณอัตโนมัติ</span>' : ''}</span><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></div>
+            <div class="top"><span><span class="badge ot">OT ${esc(o.ot_type)}</span>${o.scan_in ? ` <span class="badge">สแกน ${esc(o.scan_in)}–${esc(o.scan_out)}</span>` : ''}</span><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></div>
             <div><b>${esc(thDate(o.ot_date))}</b> · ${esc(o.start_time)}–${esc(o.end_time)} น. (${esc(o.hours)} ชม.)</div>
             ${o.review_note ? `<div class="meta">หมายเหตุผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</div></div>` })),
       ].sort((a, b) => b.at.localeCompare(a.at));
@@ -1074,7 +1175,7 @@
     if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
     window.scrollTo(0, 0);
   }
-  tabs.forEach((b) => (b.onclick = () => go(b.dataset.tab)));
+  tabs.forEach((b) => (b.onclick = () => { if (b.dataset.tab === 'ot') otDate = null; go(b.dataset.tab); }));
   const fromHash = () => { const t = location.hash.slice(1); return ['in', 'out', 'ot', 'cal', 'history'].includes(t) ? t : 'in'; };
   window.addEventListener('hashchange', () => { if (token && me && fromHash() !== current) go(fromHash()); });
 
