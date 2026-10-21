@@ -20,6 +20,7 @@
     cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
     flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+    pin: '<path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>',
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
 
@@ -99,6 +100,7 @@
   const PAGES = [
     { id: 'dash', label: 'ภาพรวมวันนี้', icon: 'home' },
     { id: 'att', label: 'ลงเวลาเข้า-ออก', icon: 'clock' },
+    { id: 'map', label: 'แผนที่การลงเวลา', icon: 'pin' },
     { id: 'cal', label: 'ปฏิทินพนักงาน', icon: 'cal' },
     { id: 'appeal', label: 'คำร้อง', icon: 'flag' },
     { id: 'ot', label: 'คำขอ OT', icon: 'ot' },
@@ -144,7 +146,7 @@
     clearInterval(dashTimer);
     root.querySelectorAll('[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === id));
     history.replaceState(null, '', '#' + id);
-    ({ dash: pageDash, att: pageAtt, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
+    ({ dash: pageDash, att: pageAtt, map: pageMap, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
     if (id !== 'dash') refreshCounts();
   }
   const content = () => document.getElementById('content');
@@ -192,7 +194,7 @@
     apply();
   }
 
-  // ---------- รูปสแกน: แสดงผ่าน canvas + ลายน้ำ (คลิกขวาบันทึก/เปิดลิงก์ตรง/ดาวน์โหลดไม่ได้) ----------
+  // ---------- รูปสแกน: แสดงผ่าน canvas (คลิกขวาบันทึก/เปิดลิงก์ตรง/ดาวน์โหลดไม่ได้) ----------
   const photoCache = new Map(); // file -> Promise<ImageBitmap>
   function fetchPhoto(file) {
     if (!photoCache.has(file)) {
@@ -214,21 +216,6 @@
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bmp, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
-    if (canvas.width < 160) return;
-    // ลายน้ำทแยง ระบุว่าเป็นข้อมูลภายใน ห้ามเผยแพร่
-    const text = `ห้ามเผยแพร่ · ข้อมูลภายใน · ${new Date().toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}`;
-    const fs = Math.max(12, Math.round(canvas.width / 26));
-    ctx.save();
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(-Math.PI / 6);
-    ctx.font = `600 ${fs}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,.2)';
-    ctx.textAlign = 'center';
-    const span = Math.hypot(canvas.width, canvas.height);
-    for (let y = -span / 2; y < span / 2; y += fs * 5) {
-      for (let x = -span / 2; x < span / 2; x += ctx.measureText(text).width + fs * 3) ctx.fillText(text, x, y);
-    }
-    ctx.restore();
   }
   function hydratePhotos(scope) {
     scope.querySelectorAll('canvas[data-photo]:not([data-ready])').forEach(async (cv) => {
@@ -249,7 +236,7 @@
   // ---------- ข้อสังเกตจากระบบกันโกง ----------
   const FLAG_TH = {
     outside_area: 'นอกพื้นที่ทำงาน',
-    location_unverified: 'ยืนยันพื้นที่ไม่ได้ (ยังไม่ตั้งพิกัดสถานที่)',
+    location_unverified: 'สถานที่พิมพ์เอง (ยังไม่ได้ตั้งพิกัดจุดทำงาน จึงไม่ได้วัดระยะ)',
     no_face_check: 'ตรวจใบหน้าไม่ได้',
     low_face_ratio: 'ตรวจพบใบหน้าไม่สม่ำเสมอ',
     low_gps_accuracy: 'GPS คลาดเคลื่อนสูง',
@@ -262,7 +249,7 @@
     gps_teleport: 'สงสัยปลอมตำแหน่ง: ย้ายที่เร็วเกินจริงจากครั้งก่อน',
     gps_shared: 'สงสัยปลอมตำแหน่ง: พิกัดซ้ำกับพนักงานคนอื่น',
   };
-  const INFO_FLAGS = new Set(['overnight']);
+  const INFO_FLAGS = new Set(['overnight', 'location_unverified']);
   const flagsOf = (r) => { try { return JSON.parse(r?.flags || '[]'); } catch { return []; } };
   const warnsOf = (r) => flagsOf(r).filter((f) => !INFO_FLAGS.has(f));
   const timeOf = (r) => (r.captured_at ? new Date(r.captured_at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false }) : r.time);
@@ -371,18 +358,135 @@
             <div class="card stat out"><div class="k">ยังไม่เช็คเอ้าท์</div><div class="v">${noOut}</div></div>
             <div class="card stat"><div class="k">ลงเวลาครบ</div><div class="v">${done}</div></div>
             <div class="card stat ot"><div class="k">OT รออนุมัติ</div><div class="v">${d.pending}</div></div>
-            <div class="card stat flagged"><div class="k">ต้องตรวจสอบ (กันโกง)</div><div class="v">${d.flagged || 0}</div></div>
+            <button class="card stat map-stat" id="openMap" type="button"><div class="k">${icon('pin')}แผนที่การลงเวลา</div><div class="v">${d.pairs.reduce((n, p) => n + p.records.filter((r) => r.lat !== null && r.lat !== '' && r.lat !== undefined).length, 0)}</div><div class="sub">จุดสแกนวันนี้ · กดเพื่อเปิดแผนที่ →</div></button>
             <div class="card stat out"><div class="k">คำร้องรอพิจารณา</div><div class="v">${d.appeals || 0}</div></div>
           </div>
           <h2 class="section-title">การลงเวลาวันนี้</h2>
           <div id="tbl">${attTable(d.pairs, { showDate: false })}</div>`;
         document.getElementById('rf').onclick = load;
+        document.getElementById('openMap').onclick = () => { mapState.date = d.today; go('map'); };
         bindAttTable(c, load);
       } catch (err) { toast(err.message, true); }
     };
     c.innerHTML = '<div class="empty">กำลังโหลด…</div>';
     await load();
     dashTimer = setInterval(() => { if (modal.hidden) load(); }, 60000);
+  }
+
+  // ---------- แผนที่การลงเวลา: จุดที่พนักงานสแกนเข้า/ออกงาน ----------
+  const LEAFLET = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist';
+  let leafletP = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve(window.L);
+    if (!leafletP) {
+      leafletP = new Promise((resolve, reject) => {
+        const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: `${LEAFLET}/leaflet.css`, integrity: 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=', crossOrigin: '' });
+        const js = Object.assign(document.createElement('script'), { src: `${LEAFLET}/leaflet.js`, integrity: 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=', crossOrigin: '' });
+        js.onload = () => resolve(window.L);
+        js.onerror = () => { leafletP = null; js.remove(); reject(new Error('โหลดแผนที่ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่')); };
+        document.head.append(css, js);
+      });
+    }
+    return leafletP;
+  }
+  const mapState = { date: null, type: 'all', q: '' };
+  let mapObj = null;
+  async function pageMap() {
+    const c = content();
+    mapState.date = mapState.date || ymd(new Date());
+    c.innerHTML = `<div class="page-head"><div><h1>แผนที่การลงเวลา</h1><p>จุดที่พนักงานสแกนเข้า-ออกงาน ตามพิกัด GPS จริงตอนถ่ายรูป · กดหมุดเพื่อดูรูปและรายละเอียด</p></div>
+        <button class="btn ghost" id="mapRf">${icon('refresh')}รีเฟรช</button></div>
+      <div class="card map-bar">
+        <label class="field"><span>วันที่</span><input type="date" id="mapDate" value="${esc(mapState.date)}"></label>
+        <div class="seg" id="mapType">
+          <button type="button" data-t="all">ทั้งหมด</button><button type="button" data-t="in">🟢 เข้างาน</button><button type="button" data-t="out">🔴 ออกงาน</button>
+        </div>
+        <label class="field grow"><span>ค้นหา</span><input id="mapQ" placeholder="ชื่อ / รหัสพนักงาน / สถานที่" value="${esc(mapState.q)}"></label>
+      </div>
+      <div class="map-wrap">
+        <div class="card map-card"><div id="map"><div class="empty">กำลังโหลดแผนที่…</div></div></div>
+        <div class="card map-list" id="mapList"></div>
+      </div>`;
+    const typeBtns = c.querySelectorAll('#mapType [data-t]');
+    const markType = () => typeBtns.forEach((b) => b.classList.toggle('on', b.dataset.t === mapState.type));
+    markType();
+    let L;
+    try { L = await loadLeaflet(); } catch (err) { document.getElementById('map').innerHTML = `<div class="empty">${esc(err.message)}</div>`; return; }
+    if (page !== 'map') return;
+    if (mapObj) { mapObj.remove(); mapObj = null; }
+    const el = document.getElementById('map');
+    el.innerHTML = '';
+    mapObj = L.map(el, { zoomControl: true }).setView([13.75, 100.5], 6);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(mapObj);
+    const layer = L.layerGroup().addTo(mapObj);
+    let recs = [];
+
+    const popupHtml = (r) => {
+      const w = warnsOf(r);
+      return `<div class="map-pop">
+        <canvas class="pop-photo" data-photo="${esc(r.photo)}" data-fit="contain"></canvas>
+        <div class="pop-body">
+          <span class="badge ${r.type === 'in' ? 'approved' : 'pending'}">${r.type === 'in' ? 'เข้างาน' : 'ออกงาน'}</span>
+          <b>${esc(r.name)}</b><div class="sub">รหัส ${esc(r.emp_code)}</div>
+          <div>🕒 ${esc(thDate(r.work_date))} ${esc(r.time)} น.</div>
+          <div>🏢 ${esc(r.location)}</div>
+          <div class="sub">📍 ${Number(r.lat).toFixed(6)}, ${Number(r.lng).toFixed(6)}${r.accuracy ? ` (±${Math.round(r.accuracy)} ม.)` : ''}</div>
+          ${r.verify_code ? `<div>🔐 รหัสตรวจสอบ <b class="mono">${esc(r.verify_code)}</b></div>` : ''}
+          ${w.length ? `<div class="pop-warn">⚠ ${esc(w.map((f) => FLAG_TH[f] || f).join(' / '))}</div>` : ''}
+          <button class="btn ghost sm" data-big="${esc(r.photo)}" type="button">ดูรูปใหญ่</button>
+        </div></div>`;
+    };
+    const draw = () => {
+      layer.clearLayers();
+      const q = mapState.q.trim().toLowerCase();
+      const shown = recs.filter((r) => (mapState.type === 'all' || r.type === mapState.type)
+        && (!q || `${r.name} ${r.emp_code} ${r.location}`.toLowerCase().includes(q)));
+      const markers = new Map();
+      shown.forEach((r) => {
+        const bad = warnsOf(r).length > 0;
+        const m = L.circleMarker([Number(r.lat), Number(r.lng)], {
+          radius: 9, weight: bad ? 4 : 2, color: bad ? '#f9a825' : '#fff',
+          fillColor: r.type === 'in' ? '#0f9d76' : '#d93025', fillOpacity: 0.95,
+        }).addTo(layer);
+        m.bindTooltip(`${esc(r.name)} · ${r.type === 'in' ? 'เข้า' : 'ออก'} ${esc(r.time)}`, { direction: 'top', offset: [0, -8] });
+        m.bindPopup(() => popupHtml(r), { maxWidth: 300, minWidth: 240 });
+        markers.set(r.id, m);
+      });
+      const list = document.getElementById('mapList');
+      list.innerHTML = `<div class="map-list-head">${shown.length} จุด${recs.length !== shown.length ? ` (จาก ${recs.length})` : ''}</div>`
+        + (shown.length ? shown.map((r) => `<button type="button" class="map-item" data-id="${esc(r.id)}">
+            <span class="dot ${r.type}"></span><span><b>${esc(r.name)}</b> <span class="sub">${esc(r.emp_code)}</span>
+            <div class="sub">${r.type === 'in' ? 'เข้างาน' : 'ออกงาน'} ${esc(r.time)} · ${esc(r.location)}${warnsOf(r).length ? ' · <span class="bad">⚠</span>' : ''}</div></span></button>`).join('')
+          : '<div class="empty">ไม่มีจุดสแกนในวันที่เลือก</div>');
+      list.querySelectorAll('.map-item').forEach((b) => (b.onclick = () => {
+        const m = markers.get(Number(b.dataset.id)) || markers.get(b.dataset.id);
+        if (!m) return;
+        mapObj.setView(m.getLatLng(), Math.max(mapObj.getZoom(), 17));
+        m.openPopup();
+      }));
+      if (shown.length) mapObj.fitBounds(L.latLngBounds(shown.map((r) => [Number(r.lat), Number(r.lng)])).pad(0.2), { maxZoom: 17 });
+    };
+    mapObj.on('popupopen', (e) => {
+      const node = e.popup.getElement();
+      hydratePhotos(node);
+      node.querySelectorAll('[data-big]').forEach((b) => (b.onclick = () => showPhoto(b.dataset.big)));
+    });
+    const load = async () => {
+      try {
+        const { pairs } = await api(`/api/admin/attendance?from=${mapState.date}&to=${mapState.date}`);
+        if (page !== 'map') return;
+        recs = pairs.flatMap((p) => p.records).filter((r) => r.lat !== null && r.lat !== '' && r.lat !== undefined && r.lng !== null && r.lng !== '')
+          .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+        draw();
+      } catch (err) { toast(err.message, true); }
+    };
+    typeBtns.forEach((b) => (b.onclick = () => { mapState.type = b.dataset.t; markType(); draw(); }));
+    document.getElementById('mapDate').onchange = (e) => { if (e.target.value) { mapState.date = e.target.value; load(); } };
+    let qt;
+    document.getElementById('mapQ').oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { mapState.q = e.target.value; draw(); }, 200); };
+    document.getElementById('mapRf').onclick = load;
+    setTimeout(() => mapObj && mapObj.invalidateSize(), 50);
+    await load();
   }
 
   function pageAtt() {
