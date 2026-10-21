@@ -176,3 +176,18 @@ tr.row-pending td { background: var(--warn-soft); }
 
 .code-reqs { margin-bottom: 14px; border-color: var(--warn); }
 .table-head { padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--warn-soft); color: var(--warn); }
+
+/* ---------- สถานะการใช้งานพนักงาน ---------- */
+.act-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
+.act-filters .btn.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.act-filters i { font-style: normal; background: var(--surface); border-radius: 999px; padding: 0 7px; font-size: 12px; margin-left: 2px; }
+.dot-online, .dot-offline { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+.dot-online { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.2); }
+.dot-offline { background: var(--c-gray, #9aa4ae); }
+tr.row-inactive td { background: color-mix(in srgb, var(--bad-soft) 60%, transparent); }
+.del-info { background: var(--surface-2); border-radius: 10px; padding: 10px 12px; margin: 12px 0; font-size: 14.5px; }
+.del-form { display: grid; gap: 10px; }
+.del-opt { display: flex; gap: 10px; align-items: flex-start; border: 1.5px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; }
+.del-opt:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
+.del-opt.danger:has(input:checked) { border-color: var(--bad); background: var(--bad-soft); }
+.del-opt input { margin-top: 4px; width: 18px; height: 18px; flex: none; }

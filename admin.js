@@ -508,7 +508,9 @@
         <label class="field f-q" style="flex:1;max-width:340px"><span>ค้นหา</span><input name="q" placeholder="รหัส ชื่อ หรือเบอร์โทร"></label>
         <div class="actions"><button class="btn primary" type="submit">ค้นหา</button>
           <button type="button" class="btn ghost" id="expEmp">${icon('dl')}ส่งออก Excel</button></div>
-      </form><div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+      </form>
+      <div class="act-filters" id="actF"></div>
+      <div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
     const ef = document.getElementById('ef');
     const sw = document.getElementById('regSwitch');
     const regText = (mode) => {
@@ -554,72 +556,160 @@
         }));
       } catch (err) { box.innerHTML = ''; toast(err.message, true); }
     };
+    // ---- สถานะการใช้งาน: กรอง/เรียง ฝั่งหน้าเว็บ ----
+    const ACT_FILTERS = [
+      { id: 'all', label: 'ทั้งหมด', fn: () => true },
+      { id: 'online', label: '🟢 ออนไลน์', fn: (e) => e.online },
+      { id: 'm3', label: 'ขาดสแกน ≥ 3 วัน', fn: (e) => e.status !== 'pending' && e.missed_workdays >= 3 },
+      { id: 'm7', label: 'ขาดสแกน ≥ 7 วัน (อาจลาออก)', fn: (e) => e.status !== 'pending' && e.missed_workdays >= 7 },
+      { id: 'm30', label: 'ขาดสแกน ≥ 30 วัน', fn: (e) => e.status !== 'pending' && e.missed_workdays >= 30 },
+    ];
+    let actFilter = 'all';
+    let sortByMissed = false;
+    let items = [];
+    const ago = (iso) => {
+      if (!iso) return '';
+      const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+      if (min < 1) return 'เมื่อสักครู่';
+      if (min < 60) return `${min} นาทีที่แล้ว`;
+      if (min < 1440) return `${Math.round(min / 60)} ชม.ที่แล้ว`;
+      return `${Math.round(min / 1440)} วันที่แล้ว`;
+    };
+    const missedBadge = (e) => {
+      if (e.status === 'pending') return '<span class="muted">–</span>';
+      const n = e.missed_workdays || 0;
+      if (n >= 7) return `<span class="badge rejected">${n} วัน · อาจลาออก</span>`;
+      if (n >= 3) return `<span class="badge pending">${n} วัน</span>`;
+      return `<span class="badge approved">${n ? `${n} วัน` : 'ไม่ขาด'}</span>`;
+    };
+
+    const draw = () => {
+      const t = document.getElementById('tbl');
+      if (!t) return;
+      document.querySelectorAll('#actF [data-f]').forEach((b) => {
+        const f = ACT_FILTERS.find((x) => x.id === b.dataset.f);
+        b.classList.toggle('active', b.dataset.f === actFilter);
+        b.querySelector('i').textContent = items.filter(f.fn).length;
+      });
+      document.getElementById('sortMissed').classList.toggle('active', sortByMissed);
+      if (!items.length) { t.innerHTML = '<div class="card empty">ยังไม่มีพนักงานลงทะเบียน</div>'; return; }
+      let rows = items.filter(ACT_FILTERS.find((x) => x.id === actFilter).fn);
+      if (sortByMissed) rows = [...rows].sort((a, b) => (b.missed_workdays || 0) - (a.missed_workdays || 0));
+      if (!rows.length) { t.innerHTML = '<div class="card empty">ไม่มีพนักงานตามเงื่อนไขนี้</div>'; return; }
+      const waiting = items.filter((e) => e.status === 'pending').length;
+      t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
+        <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>ออนไลน์</th><th>สแกนเข้างานล่าสุด</th><th>ขาดสแกน (วันทำงาน)</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+        <tbody>${rows.map((e) => `<tr class="${e.status === 'pending' ? 'row-pending' : e.missed_workdays >= 7 ? 'row-inactive' : ''}">
+          <td class="t-time">${esc(e.emp_code)}</td>
+          <td><b>${esc(e.title + e.first_name + ' ' + e.last_name)}</b><div class="sub">ลงทะเบียน ${esc(thDate(ymd(new Date(e.created_at))))} · ${e.devices} เครื่อง</div></td>
+          <td class="nowrap">${esc(e.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'))}</td>
+          <td class="nowrap">${e.online ? '<span class="dot-online"></span>ออนไลน์' : `<span class="dot-offline"></span><span class="muted">${e.last_seen_at ? `ใช้ล่าสุด ${esc(ago(e.last_seen_at))}` : 'ยังไม่เคยใช้'}</span>`}</td>
+          <td class="nowrap">${e.last_checkin_date ? `${esc(thDate(e.last_checkin_date))}<div class="sub">${e.days_since_checkin === 0 ? 'วันนี้' : `${e.days_since_checkin} วันที่แล้ว`}</div>` : '<span class="muted">ยังไม่เคยสแกน</span>'}</td>
+          <td class="nowrap">${missedBadge(e)}</td>
+          <td>${e.status === 'pending' ? '<span class="badge pending">รออนุมัติ</span>' : `<span class="badge ${e.active ? 'approved' : 'rejected'}">${e.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</span>`}</td>
+          <td><div class="act">${e.status === 'pending' ? `
+            <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
+            <button class="btn ok sm" data-approve="${e.id}" data-name="${esc(e.emp_code)}">อนุมัติ</button>
+            <button class="btn danger sm" data-reject="${e.id}" data-name="${esc(e.emp_code)}">ไม่อนุมัติ</button>` : `
+            <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
+            <button class="btn ghost sm" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสผ่านใหม่</button>
+            <button class="btn ghost sm" data-phone="${e.id}" data-cur="${esc(e.phone)}">แก้เบอร์</button>
+            <button class="btn ${e.active ? 'danger' : 'ok'} sm" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+            <button class="btn danger sm" data-del="${e.id}">ลบ</button>`}
+          </div></td></tr>`).join('')}</tbody></table></div>
+        <div class="table-foot"><span>แสดง ${rows.length} จาก ${items.length} คน${waiting ? ` · <b class="warn">รออนุมัติ ${waiting} คน</b>` : ''}</span>
+          <span class="sub">ขาดสแกน = วันทำงานที่ผ่านมาแล้ว (ไม่นับวันหยุด) หลังสแกนเข้างานครั้งล่าสุด</span></div></div>`;
+      bindRowActions(t);
+    };
+
+    const patch = async (id, body, msg) => {
+      try { await api(`/api/admin/employees/${id}`, { method: 'PATCH', body }); toast(msg); load(); refreshCounts(); } catch (err) { toast(err.message, true); }
+    };
+    const bindRowActions = (t) => {
+      t.querySelectorAll('[data-code]').forEach((b) => (b.onclick = () => {
+        const v = prompt(`แก้รหัสพนักงาน ${b.dataset.name} เป็น (อักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข)\nประวัติลงเวลา/OT/คำร้องเดิมจะเปลี่ยนเป็นรหัสใหม่ทั้งหมด\nพนักงานต้องใช้รหัสใหม่ตอนเข้าสู่ระบบครั้งถัดไป`, b.dataset.name);
+        if (v === null) return;
+        const code = v.trim().toUpperCase();
+        if (!/^[A-Z]+[0-9]+$/.test(code)) return toast('รหัสต้องเป็นอักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข เช่น EMP001', true);
+        if (code === b.dataset.name) return;
+        patch(b.dataset.code, { emp_code: code }, `เปลี่ยนรหัส ${b.dataset.name} เป็น ${code} แล้ว`);
+      }));
+      t.querySelectorAll('[data-approve]').forEach((b) => (b.onclick = () => patch(b.dataset.approve, { approve: true }, `อนุมัติ ${b.dataset.name} แล้ว เข้าสู่ระบบได้ทันที`)));
+      t.querySelectorAll('[data-reject]').forEach((b) => (b.onclick = () => {
+        if (!confirm(`ไม่อนุมัติใบสมัคร ${b.dataset.name}?\nใบสมัครจะถูกลบ (สมัครใหม่ด้วยข้อมูลที่ถูกต้องได้)`)) return;
+        patch(b.dataset.reject, { reject: true }, 'ลบใบสมัครแล้ว');
+      }));
+      t.querySelectorAll('[data-active]').forEach((b) => (b.onclick = () => {
+        const on = b.dataset.to === '1';
+        if (!on && !confirm('ปิดใช้งานพนักงานคนนี้? เครื่องที่ล็อกอินไว้จะถูกออกจากระบบ')) return;
+        patch(b.dataset.active, { active: on }, on ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว');
+      }));
+      t.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = () => {
+        const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ ${b.dataset.name} (อย่างน้อย 6 ตัว)\nพนักงานต้องเข้าสู่ระบบใหม่ด้วยรหัสนี้`);
+        if (pw === null) return;
+        if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว', true);
+        patch(b.dataset.pw, { password: pw }, 'ตั้งรหัสผ่านใหม่แล้ว');
+      }));
+      t.querySelectorAll('[data-phone]').forEach((b) => (b.onclick = () => {
+        const ph = prompt('เบอร์โทรใหม่ (10 หลัก ขึ้นต้นด้วย 0)', b.dataset.cur);
+        if (ph === null) return;
+        patch(b.dataset.phone, { phone: ph }, 'แก้เบอร์โทรแล้ว');
+      }));
+      t.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => openDelete(items.find((x) => String(x.id) === b.dataset.del))));
+    };
+
+    // ---- ลบพนักงาน: เลือกเก็บประวัติหรือลบทั้งหมด + พิมพ์รหัสยืนยัน ----
+    const openDelete = (e) => {
+      openModal(`
+        <h2 style="margin:0 40px 6px 0">ลบพนักงาน</h2>
+        <div class="muted">${esc(e.title + e.first_name + ' ' + e.last_name)} · รหัส <b>${esc(e.emp_code)}</b></div>
+        <div class="del-info">สแกนเข้างานล่าสุด: <b>${e.last_checkin_date ? esc(thDate(e.last_checkin_date)) : 'ยังไม่เคยสแกน'}</b> · ขาดสแกน ${e.missed_workdays || 0} วันทำงาน · ใช้แอปล่าสุด ${e.last_seen_at ? esc(ago(e.last_seen_at)) : '–'}</div>
+        <form id="delf" class="del-form">
+          <label class="del-opt"><input type="radio" name="mode" value="account" checked>
+            <div><b>ลบบัญชี แต่เก็บประวัติไว้ (แนะนำ)</b><div class="sub">เข้าระบบไม่ได้อีก · ประวัติลงเวลา/OT/รูปยังอยู่เป็นหลักฐาน (กฎหมายแรงงานให้เก็บเอกสารการจ้างอย่างน้อย 2 ปี) · รหัสและเบอร์นี้นำไปใช้สมัครใหม่ได้</div></div></label>
+          <label class="del-opt danger"><input type="radio" name="mode" value="all">
+            <div><b>ลบทั้งหมด</b><div class="sub">ลบบัญชี + ประวัติลงเวลา + รูปถ่าย + OT + คำร้อง ของคนนี้ถาวร <b>กู้คืนไม่ได้</b></div></div></label>
+          <label class="field"><span>พิมพ์รหัสพนักงาน <b>${esc(e.emp_code)}</b> เพื่อยืนยัน</span><input name="confirm" autocomplete="off" spellcheck="false"></label>
+          <div class="row"><button type="submit" class="btn danger" id="delBtn" disabled>ลบพนักงาน</button><button type="button" class="btn ghost" id="delCancel">ยกเลิก</button></div>
+          <p class="sub">ถ้าไม่แน่ใจว่าลาออกจริง ให้กด "ปิดใช้งาน" แทน (เปิดกลับได้ภายหลัง)</p>
+        </form>`);
+      const f = document.getElementById('delf');
+      const btn = document.getElementById('delBtn');
+      f.confirm.oninput = () => { btn.disabled = f.confirm.value.trim().toUpperCase() !== e.emp_code; };
+      f.querySelectorAll('[name=mode]').forEach((r) => (r.onchange = () => { btn.textContent = f.mode.value === 'all' ? 'ลบทั้งหมดถาวร' : 'ลบพนักงาน'; }));
+      document.getElementById('delCancel').onclick = closeModal;
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        if (f.mode.value === 'all' && !confirm(`ยืนยันลบข้อมูลทั้งหมดของ ${e.emp_code} ถาวร? กู้คืนไม่ได้`)) return;
+        btn.disabled = true;
+        btn.textContent = 'กำลังลบ…';
+        try {
+          const r = await api(`/api/admin/employees/${e.id}?mode=${f.mode.value}&confirm=${encodeURIComponent(f.confirm.value.trim())}`, { method: 'DELETE' });
+          closeModal();
+          toast(r.mode === 'all' ? `ลบ ${e.emp_code} แล้ว (ลงเวลา ${r.removed.attendance} รายการ, รูป ${r.removed.photos} รูป)` : `ลบบัญชี ${e.emp_code} แล้ว (เก็บประวัติไว้)`);
+          load();
+          refreshCounts();
+        } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = 'ลบพนักงาน'; }
+      };
+    };
+
     const load = async () => {
       loadCodeReqs();
       const q = ef.q.value.trim();
       document.getElementById('expEmp').onclick = () => Backend.download(`/api/admin/export/employees?${new URLSearchParams(q ? { q } : {})}`, 'employees.csv').catch((e) => toast(e.message, true));
       try {
-        const { items } = await api(`/api/admin/employees?${new URLSearchParams(q ? { q } : {})}`);
-        const t = document.getElementById('tbl');
-        if (!t) return;
-        if (!items.length) { t.innerHTML = '<div class="card empty">ยังไม่มีพนักงานลงทะเบียน</div>'; return; }
-        const waiting = items.filter((e) => e.status === 'pending').length;
-        t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
-          <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>ลงทะเบียนเมื่อ</th><th>ใช้งานล่าสุด</th><th class="num">อุปกรณ์</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
-          <tbody>${items.map((e) => `<tr${e.status === 'pending' ? ' class="row-pending"' : ''}>
-            <td class="t-time">${esc(e.emp_code)}</td>
-            <td><b>${esc(e.title + e.first_name + ' ' + e.last_name)}</b></td>
-            <td class="nowrap">${esc(e.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'))}</td>
-            <td class="nowrap">${esc(thDateTime(e.created_at))}</td>
-            <td class="nowrap">${e.last_seen_at ? esc(thDateTime(e.last_seen_at)) : '<span class="muted">–</span>'}</td>
-            <td class="num">${e.devices}</td>
-            <td>${e.status === 'pending' ? '<span class="badge pending">รออนุมัติ</span>' : `<span class="badge ${e.active ? 'approved' : 'rejected'}">${e.active ? 'ใช้งาน' : 'ปิดใช้งาน'}</span>`}</td>
-            <td><div class="act">${e.status === 'pending' ? `
-              <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
-              <button class="btn ok sm" data-approve="${e.id}" data-name="${esc(e.emp_code)}">อนุมัติ</button>
-              <button class="btn danger sm" data-reject="${e.id}" data-name="${esc(e.emp_code)}">ไม่อนุมัติ</button>` : `
-              <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
-              <button class="btn ghost sm" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสผ่านใหม่</button>
-              <button class="btn ghost sm" data-phone="${e.id}" data-cur="${esc(e.phone)}">แก้เบอร์</button>
-              <button class="btn ${e.active ? 'danger' : 'ok'} sm" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>`}
-            </div></td></tr>`).join('')}</tbody></table></div>
-          <div class="table-foot"><span>${items.length} คน${waiting ? ` · <b class="warn">รออนุมัติ ${waiting} คน</b>` : ''}</span></div></div>`;
-        const patch = async (id, body, msg) => {
-          try { await api(`/api/admin/employees/${id}`, { method: 'PATCH', body }); toast(msg); load(); refreshCounts(); } catch (err) { toast(err.message, true); }
-        };
-        t.querySelectorAll('[data-code]').forEach((b) => (b.onclick = () => {
-          const v = prompt(`แก้รหัสพนักงาน ${b.dataset.name} เป็น (อักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข)\nประวัติลงเวลา/OT/คำร้องเดิมจะเปลี่ยนเป็นรหัสใหม่ทั้งหมด\nพนักงานต้องใช้รหัสใหม่ตอนเข้าสู่ระบบครั้งถัดไป`, b.dataset.name);
-          if (v === null) return;
-          const code = v.trim().toUpperCase();
-          if (!/^[A-Z]+[0-9]+$/.test(code)) return toast('รหัสต้องเป็นอักษรอังกฤษตัวใหญ่ ตามด้วยตัวเลข เช่น EMP001', true);
-          if (code === b.dataset.name) return;
-          patch(b.dataset.code, { emp_code: code }, `เปลี่ยนรหัส ${b.dataset.name} เป็น ${code} แล้ว`);
-        }));
-        t.querySelectorAll('[data-approve]').forEach((b) => (b.onclick = () => patch(b.dataset.approve, { approve: true }, `อนุมัติ ${b.dataset.name} แล้ว เข้าสู่ระบบได้ทันที`)));
-        t.querySelectorAll('[data-reject]').forEach((b) => (b.onclick = () => {
-          if (!confirm(`ไม่อนุมัติใบสมัคร ${b.dataset.name}?\nใบสมัครจะถูกลบ (สมัครใหม่ด้วยข้อมูลที่ถูกต้องได้)`)) return;
-          patch(b.dataset.reject, { reject: true }, 'ลบใบสมัครแล้ว');
-        }));
-        t.querySelectorAll('[data-active]').forEach((b) => (b.onclick = () => {
-          const on = b.dataset.to === '1';
-          if (!on && !confirm('ปิดใช้งานพนักงานคนนี้? เครื่องที่ล็อกอินไว้จะถูกออกจากระบบ')) return;
-          patch(b.dataset.active, { active: on }, on ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว');
-        }));
-        t.querySelectorAll('[data-pw]').forEach((b) => (b.onclick = () => {
-          const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ ${b.dataset.name} (อย่างน้อย 6 ตัว)\nพนักงานต้องเข้าสู่ระบบใหม่ด้วยรหัสนี้`);
-          if (pw === null) return;
-          if (pw.length < 6) return toast('รหัสผ่านต้องมีอย่างน้อย 6 ตัว', true);
-          patch(b.dataset.pw, { password: pw }, 'ตั้งรหัสผ่านใหม่แล้ว');
-        }));
-        t.querySelectorAll('[data-phone]').forEach((b) => (b.onclick = () => {
-          const ph = prompt('เบอร์โทรใหม่ (10 หลัก ขึ้นต้นด้วย 0)', b.dataset.cur);
-          if (ph === null) return;
-          patch(b.dataset.phone, { phone: ph }, 'แก้เบอร์โทรแล้ว');
-        }));
+        ({ items } = await api(`/api/admin/employees?${new URLSearchParams(q ? { q } : {})}`));
+        draw();
       } catch (err) { toast(err.message, true); }
     };
+    document.getElementById('actF').innerHTML = ACT_FILTERS.map((f) => `<button type="button" class="btn ghost sm" data-f="${f.id}">${f.label} <i>0</i></button>`).join('')
+      + '<button type="button" class="btn ghost sm" id="sortMissed">เรียง: ขาดสแกนนานสุดก่อน</button>';
+    document.querySelectorAll('#actF [data-f]').forEach((b) => (b.onclick = () => { actFilter = b.dataset.f; draw(); }));
+    document.getElementById('sortMissed').onclick = () => { sortByMissed = !sortByMissed; draw(); };
     ef.onsubmit = (e) => { e.preventDefault(); load(); };
     load();
+    // อัปเดตสถานะออนไลน์ทุก 1 นาที ขณะเปิดหน้านี้
+    dashTimer = setInterval(() => { if (page === 'emp' && modal.hidden) load(); }, 60000);
   }
 
   // ---------- ปฏิทินพนักงาน ----------

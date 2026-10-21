@@ -118,6 +118,7 @@
   function signOut(msg) {
     stopGps();
     clearInterval(liveTimer);
+    clearInterval(beatTimer);
     document.querySelector('.scanner .scan-x')?.click();
     token = null;
     me = null;
@@ -1077,9 +1078,16 @@
   const fromHash = () => { const t = location.hash.slice(1); return ['in', 'out', 'ot', 'cal', 'history'].includes(t) ? t : 'in'; };
   window.addEventListener('hashchange', () => { if (token && me && fromHash() !== current) go(fromHash()); });
 
+  // ส่งสัญญาณ "ออนไลน์" ให้ผู้ดูแลเห็น: ทุก 5 นาทีขณะเปิดแอปอยู่ และทุกครั้งที่กลับมาที่แอป
+  let beatTimer = null;
+  const heartbeat = () => { if (token && !document.hidden) api('/api/me').then((d) => { me = d.employee; store.set('emp_profile', me); }).catch(() => {}); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
+
   function startApp() {
     authLayout(false);
     go(fromHash());
+    clearInterval(beatTimer);
+    beatTimer = setInterval(heartbeat, 5 * 60 * 1000);
   }
 
   if (token && me) {
