@@ -1070,6 +1070,7 @@
             <label><input type="radio" name="mode" value="in"> ส่งเฉพาะเข้างาน</label>
             <label><input type="radio" name="mode" value="off"> ไม่ส่ง (ปิด)</label>
           </div>
+          <label class="tg-caption"><input type="checkbox" name="caption"> <span><b>ใส่ข้อความรายละเอียดใต้รูป</b><span class="sub">ชื่อ เวลา สถานที่ ลิงก์แผนที่ รหัสตรวจสอบ · ปิด = ส่งรูปอย่างเดียว (ข้อมูลประทับอยู่ในรูปแล้ว)</span></span></label>
           <div id="tgState" class="tg-state">กำลังโหลด…</div>
           <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:12px">
             <button class="btn ghost" type="button" id="tgTest">ส่งข้อความทดสอบ</button>
@@ -1237,6 +1238,7 @@
     const tgShow = (t) => {
       tgf.mode.forEach((r) => (r.checked = r.value === t.mode));
       tgf.chat_id.value = t.chat_id || '';
+      tgf.caption.checked = t.caption !== false;
       tgf.token.value = '';
       tgf.token.placeholder = t.has_token ? `บันทึกไว้แล้ว (${t.token_hint}) · พิมพ์ใหม่ถ้าต้องการเปลี่ยน` : '123456789:AAH…';
       const st = [];
@@ -1261,7 +1263,7 @@
     tgf.onsubmit = (e) => {
       e.preventDefault();
       tgBusy(tgf.querySelector('[type=submit]'), async () => {
-        const body = { chat_id: tgf.chat_id.value.trim(), mode: tgf.mode.value };
+        const body = { chat_id: tgf.chat_id.value.trim(), mode: tgf.mode.value, caption: tgf.caption.checked };
         if (tgf.token.value.trim()) body.token = tgf.token.value.trim();
         tgShow(await api('/api/admin/telegram', { method: 'PUT', body }));
         toast('บันทึกการตั้งค่า Telegram แล้ว');
