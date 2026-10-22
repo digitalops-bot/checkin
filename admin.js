@@ -1238,7 +1238,7 @@
     const tgShow = (t) => {
       tgf.mode.forEach((r) => (r.checked = r.value === t.mode));
       tgf.chat_id.value = t.chat_id || '';
-      tgf.caption.checked = t.caption !== false;
+      tgf.caption.checked = t.caption === true;
       tgf.token.value = '';
       tgf.token.placeholder = t.has_token ? `บันทึกไว้แล้ว (${t.token_hint}) · พิมพ์ใหม่ถ้าต้องการเปลี่ยน` : '123456789:AAH…';
       const st = [];
