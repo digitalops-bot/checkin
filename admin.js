@@ -1391,10 +1391,16 @@
             <div class="adm-item${a.active ? '' : ' off'}">
               <span>👤 <b>${esc(a.name)}</b> <span class="sub">ชื่อผู้ใช้ ${esc(a.username)} · ${a.active ? (a.last_login_at ? `เข้าใช้ล่าสุด ${esc(thDateTime(a.last_login_at))}` : 'ยังไม่เคยเข้าใช้') : 'ปิดใช้งาน'}</span></span>
               <span class="act">
+                <button type="button" class="btn ghost sm" data-aname="${esc(a.username)}" data-cur="${esc(a.name)}">แก้ชื่อ</button>
                 <button type="button" class="btn ghost sm" data-apw="${esc(a.username)}">ตั้งรหัสผ่านใหม่</button>
                 <button type="button" class="btn ${a.active ? 'danger' : 'ok'} sm" data-aact="${esc(a.username)}" data-to="${a.active ? 0 : 1}">${a.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
                 <button type="button" class="btn danger sm" data-adel="${esc(a.username)}" data-name="${esc(a.name)}">ลบ</button>
               </span></div>`).join('') : '<div class="muted">ยังไม่มีผู้ดูแลเพิ่มเติม</div>');
+          admList.querySelectorAll('[data-aname]').forEach((b) => (b.onclick = async () => {
+            const nm = prompt(`แก้ชื่อที่แสดงของ ${b.dataset.aname}`, b.dataset.cur);
+            if (nm === null || nm.trim() === b.dataset.cur) return;
+            try { await api(`/api/admin/admins/${b.dataset.aname}`, { method: 'PATCH', body: { name: nm.trim() } }); toast('แก้ชื่อแล้ว'); loadAdmins(); } catch (err) { toast(err.message, true); }
+          }));
           admList.querySelectorAll('[data-apw]').forEach((b) => (b.onclick = async () => {
             const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ ${b.dataset.apw} (อย่างน้อย 8 ตัว ภาษาอังกฤษ/ตัวเลข/สัญลักษณ์)`, genPw());
             if (pw === null) return;
