@@ -280,3 +280,31 @@ button.stat { font: inherit; color: inherit; text-align: left; cursor: pointer; 
 .field .time24, .field .thdate { flex-wrap: nowrap; }
 .field .time24 select, .field .thdate select { width: auto; flex: none; display: inline-block; }
 .field .time24 b { display: inline; }
+
+/* ---------- ตารางพอดีจอ: ไม่ตัดบรรทัดเกินจำเป็น ---------- */
+.name-cell b, .name-cell .sub { white-space: nowrap; }
+.manage-list { display: grid; gap: 8px; }
+.manage-list .btn { width: 100%; justify-content: flex-start; text-align: left; }
+.chips, .act-filters { flex-wrap: wrap; }
+/* มือถือ: แต่ละแถวเป็นการ์ด ป้ายชื่อคอลัมน์อยู่ซ้าย ค่าอยู่ขวา (ไม่ต้องเลื่อนซ้ายขวา) */
+@media (max-width: 760px) {
+  .table-card table, .table-card thead, .table-card tbody, .table-card tr, .table-card td { display: block; width: 100%; }
+  .table-card thead { display: none; }
+  .table-card tr { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .table-card td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 5px 0; border: 0; text-align: right; }
+  .table-card td::before { content: attr(data-label); color: var(--muted); font-size: 13px; font-weight: 600; text-align: left; flex: none; max-width: 45%; }
+  .table-card td:not([data-label])::before, .table-card td[data-label=""]::before { content: none; }
+  .table-card td > * { text-align: right; }
+  .table-card td.num, .table-card th.num { text-align: right; }
+  .table-card .name-cell { justify-content: flex-end; }
+  .table-card .name-cell > div { text-align: left; }
+  .table-card td .act { justify-content: flex-end; flex-wrap: wrap; }
+  .table-card tfoot, .table-card tfoot tr, .table-card tfoot td { display: block; }
+  .table-foot { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+@media (max-width: 760px) {
+  /* ตัวกรองเป็นแถวเดียว เลื่อนซ้าย-ขวาได้ ไม่กินพื้นที่หลายบรรทัด */
+  .act-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .act-filters::-webkit-scrollbar { display: none; }
+  .act-filters .btn { flex: none; white-space: nowrap; }
+}

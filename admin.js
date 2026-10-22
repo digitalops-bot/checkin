@@ -105,7 +105,15 @@
       } else el.textContent = el.dataset.n || '?';
     });
   }
-  new MutationObserver(() => paintAvatars(document)).observe(document.documentElement, { childList: true, subtree: true });
+  function labelTables(scope) {
+    scope.querySelectorAll('table:not([data-labeled])').forEach((tb) => {
+      const heads = [...tb.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+      if (!heads.length) return;
+      tb.dataset.labeled = '1';
+      tb.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (heads[i]) td.dataset.label = heads[i]; }));
+    });
+  }
+  new MutationObserver(() => { paintAvatars(document); labelTables(document); }).observe(document.documentElement, { childList: true, subtree: true });
   const nameCell = (id, name, code, extra = '') => `<div class="name-cell">${avTag(id, name)}<div><b>${esc(name)}</b>${codeSub(code)}${extra}</div></div>`;
   const num = (n) => (n || n === 0 ? Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }) : '–');
 
@@ -793,7 +801,7 @@
         <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>ออนไลน์</th><th>สแกนเข้างานล่าสุด</th><th>ขาดสแกน (วันทำงาน)</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
         <tbody>${rows.map((e) => `<tr class="${e.status === 'pending' ? 'row-pending' : e.missed_workdays >= 7 ? 'row-inactive' : ''}">
           <td class="t-time">${esc(e.emp_code)}</td>
-          <td>${nameCell(e.id, e.title + e.first_name + ' ' + e.last_name, '', `<div class="sub">ลงทะเบียน ${esc(thDate(ymd(new Date(e.created_at))))} · ${e.devices} เครื่อง</div>`)}</td>
+          <td>${nameCell(e.id, e.title + e.first_name + ' ' + e.last_name, '', `<div class="sub">ลงทะเบียน ${esc(new Date(e.created_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }))} · ${e.devices} เครื่อง</div>`)}</td>
           <td class="nowrap">${esc(e.phone.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'))}</td>
           <td class="nowrap">${e.online ? '<span class="dot-online"></span>ออนไลน์' : `<span class="dot-offline"></span><span class="muted">${e.last_seen_at ? `ใช้ล่าสุด ${esc(ago(e.last_seen_at))}` : 'ยังไม่เคยใช้'}</span>`}</td>
           <td class="nowrap">${e.last_checkin_date ? `${esc(thDate(e.last_checkin_date))}<div class="sub">${e.days_since_checkin === 0 ? 'วันนี้' : `${e.days_since_checkin} วันที่แล้ว`}</div>` : '<span class="muted">ยังไม่เคยสแกน</span>'}</td>
@@ -803,15 +811,27 @@
             <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
             <button class="btn ok sm" data-approve="${e.id}" data-name="${esc(e.emp_code)}">อนุมัติ</button>
             <button class="btn danger sm" data-reject="${e.id}" data-name="${esc(e.emp_code)}">ไม่อนุมัติ</button>` : `
-            <button class="btn ghost sm" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัส</button>
-            <button class="btn ghost sm" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสผ่านใหม่</button>
-            <button class="btn ghost sm" data-phone="${e.id}" data-cur="${esc(e.phone)}">แก้เบอร์</button>
-            <button class="btn ${e.active ? 'danger' : 'ok'} sm" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
-            <button class="btn danger sm" data-del="${e.id}">ลบ</button>`}
+            <button class="btn ghost sm" data-manage="${e.id}">จัดการ ▾</button>`}
           </div></td></tr>`).join('')}</tbody></table></div>
         <div class="table-foot"><span>แสดง ${rows.length} จาก ${items.length} คน${waiting ? ` · <b class="warn">รออนุมัติ ${waiting} คน</b>` : ''}</span>
           <span class="sub">ขาดสแกน = วันทำงานที่ผ่านมาแล้ว (ไม่นับวันหยุด) หลังสแกนเข้างานครั้งล่าสุด</span></div></div>`;
       bindRowActions(t);
+      t.querySelectorAll('[data-manage]').forEach((b) => (b.onclick = () => openManage(items.find((x) => String(x.id) === b.dataset.manage))));
+    };
+    // เมนูจัดการพนักงาน (แทนปุ่มเรียงยาวในตาราง)
+    const openManage = (e) => {
+      openModal(`
+        <div class="name-cell" style="margin:0 40px 14px 0">${avTag(e.id, e.title + e.first_name, 'lg')}<div><b>${esc(e.title + e.first_name + ' ' + e.last_name)}</b><div class="sub">รหัส ${esc(e.emp_code)} · โทร ${esc(e.phone)}</div></div></div>
+        <div class="manage-list">
+          <button class="btn ghost" data-code="${e.id}" data-name="${esc(e.emp_code)}">แก้รหัสพนักงาน</button>
+          <button class="btn ghost" data-pw="${e.id}" data-name="${esc(e.emp_code)}">ตั้งรหัสผ่านใหม่</button>
+          <button class="btn ghost" data-phone="${e.id}" data-cur="${esc(e.phone)}">แก้เบอร์โทร</button>
+          <button class="btn ${e.active ? 'danger' : 'ok'}" data-active="${e.id}" data-to="${e.active ? 0 : 1}">${e.active ? 'ปิดใช้งาน (เข้าระบบไม่ได้ ข้อมูลยังอยู่)' : 'เปิดใช้งาน'}</button>
+          <button class="btn danger" data-del="${e.id}">ลบพนักงานและข้อมูลทั้งหมด</button>
+        </div>`);
+      bindRowActions(modalBody);
+      // ปิดหน้าต่างเมนูก่อนทำคำสั่ง (คำสั่งลบจะเปิดหน้าต่างยืนยันของตัวเอง)
+      modalBody.querySelectorAll('.manage-list button').forEach((b) => b.addEventListener('click', () => { if (!b.dataset.del) closeModal(); }, { capture: true }));
     };
 
     const patch = async (id, body, msg) => {
