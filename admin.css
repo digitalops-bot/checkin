@@ -308,3 +308,9 @@ button.stat { font: inherit; color: inherit; text-align: left; cursor: pointer; 
   .act-filters::-webkit-scrollbar { display: none; }
   .act-filters .btn { flex: none; white-space: nowrap; }
 }
+/* ตรวจ OT กับเวลาสแกน */
+.ot-check { display: inline-block; font-size: 13px; line-height: 1.4; font-weight: 600; }
+.ot-check.ok { color: var(--ok, #0f9d76); }
+.ot-check.bad { color: var(--bad, #c62828); }
+.reason-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+#rsnf textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font: inherit; background: var(--surface); color: var(--text); resize: vertical; }

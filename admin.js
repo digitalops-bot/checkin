@@ -599,6 +599,35 @@
     load();
   }
 
+  // หน้าต่างกรอกเหตุผลการอนุมัติ/ไม่อนุมัติ (บังคับ) พนักงานจะเห็นเหตุผลนี้
+  const REASONS = {
+    approved: ['ตรงกับเวลาสแกนและงานที่มอบหมาย', 'ได้รับมอบหมายให้ทำ OT', 'งานเร่งด่วนตามคำสั่งหัวหน้างาน'],
+    rejected: ['เวลาไม่ตรงกับการสแกน', 'ไม่ได้รับมอบหมายให้ทำ OT', 'ขอซ้ำ/ขอเกินเวลาที่ทำจริง'],
+  };
+  function askReason(status, infoHtml, onOk) {
+    const isOk = status === 'approved';
+    openModal(`
+      <h2 style="margin:0 40px 8px 0">${isOk ? 'อนุมัติ OT' : 'ไม่อนุมัติ OT'}</h2>
+      <div class="del-info">${infoHtml}</div>
+      <form id="rsnf" class="del-form">
+        <div class="reason-chips">${REASONS[status].map((r) => `<button type="button" class="btn ghost sm" data-r="${esc(r)}">${esc(r)}</button>`).join('')}</div>
+        <label class="field"><span>เหตุผล <b class="bad">*</b> <small>พนักงานจะเห็นข้อความนี้</small></span><textarea name="note" rows="3" maxlength="300" required></textarea></label>
+        <div class="row"><button type="submit" class="btn ${isOk ? 'ok' : 'danger'}" id="rsnBtn">${isOk ? 'ยืนยันอนุมัติ' : 'ยืนยันไม่อนุมัติ'}</button><button type="button" class="btn ghost" id="rsnCancel">ยกเลิก</button></div>
+      </form>`);
+    const f = document.getElementById('rsnf');
+    f.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { f.note.value = b.dataset.r; f.note.focus(); }));
+    document.getElementById('rsnCancel').onclick = closeModal;
+    f.note.focus();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const note = f.note.value.trim();
+      if (note.length < 2) { f.note.focus(); return toast('กรุณาใส่เหตุผล', true); }
+      const btn = document.getElementById('rsnBtn');
+      btn.disabled = true;
+      try { await onOk(note); closeModal(); } catch (err) { toast(err.message, true); btn.disabled = false; }
+    };
+  }
+
   function pageOT() {
     const c = content();
     c.innerHTML = `<div class="page-head"><div><h1>คำขอ OT</h1><p>อนุมัติหรือไม่อนุมัติคำขอทำโอที</p></div></div>
@@ -613,7 +642,7 @@
         const sumBy = (st) => items.filter((o) => o.status === st).reduce((s, o) => s + o.hours, 0);
         t.innerHTML = `
           <div class="card table-card"><div class="table-wrap"><table>
-            <thead><tr><th><input type="checkbox" id="all" aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>ชื่อ</th><th>ประเภท</th><th>สแกนจริง (เข้า–ออก)</th><th>เวลา OT ที่ขอ</th><th class="num">ชั่วโมง</th><th>รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="all" aria-label="เลือกทั้งหมด"></th><th>วันที่</th><th>ชื่อ</th><th>ประเภท</th><th>สแกนตอนขอ (เข้า–ออก)</th><th>เวลา OT ที่ขอ</th><th class="num">ชั่วโมง</th><th>ตรวจกับเวลาสแกน</th><th>รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
             <tbody>${items.map((o) => `
               <tr>
                 <td><input type="checkbox" class="sel" value="${o.id}" aria-label="เลือก"></td>
@@ -623,7 +652,8 @@
                 <td class="nowrap">${o.scan_in ? `<span class="t-time">${esc(o.scan_in)}–${esc(o.scan_out)}</span>${o.shift_name ? `<div class="sub">${esc(o.shift_name)}</div>` : ''}` : '<span class="muted">–</span>'}</td>
                 <td class="nowrap t-time">${esc(o.start_time)}–${esc(o.end_time)}</td>
                 <td class="num">${num(o.hours)}</td>
-                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub">ผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</td>
+                <td>${o.check ? `<span class="ot-check ${o.check.ok ? 'ok' : 'bad'}">${o.check.ok ? '✓' : '⚠'} ${esc(o.check.text)}</span>` : ''}</td>
+                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub"><b>เหตุผลผู้อนุมัติ:</b> ${esc(o.review_note)}</div>` : ''}</td>
                 <td><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></td>
                 <td><div class="act">
                   ${o.status !== 'approved' ? `<button class="btn ok sm" data-st="approved" data-id="${o.id}">อนุมัติ</button>` : ''}
@@ -640,20 +670,31 @@
         const updBulk = () => { const n = sels.filter((s) => s.checked).length; t.querySelector('#bulkOk').disabled = t.querySelector('#bulkNo').disabled = !n; };
         t.querySelector('#all').onchange = (e) => { sels.forEach((s) => (s.checked = e.target.checked)); updBulk(); };
         sels.forEach((s) => (s.onchange = updBulk));
-        const bulk = async (status) => {
+        const bulk = (status) => {
           const ids = sels.filter((s) => s.checked).map((s) => Number(s.value));
-          try { await api('/api/admin/ot/bulk', { body: { ids, status } }); toast(`อัปเดต ${ids.length} รายการ`); load(); } catch (err) { toast(err.message, true); }
+          const picked = items.filter((o) => ids.includes(o.id));
+          const bad = picked.filter((o) => o.check && !o.check.ok).length;
+          askReason(status, `${ids.length} รายการที่เลือก${bad ? ` · <b class="bad">⚠ มี ${bad} รายการที่เวลาไม่ตรงกับการสแกน</b>` : ''}`, async (review_note) => {
+            await api('/api/admin/ot/bulk', { body: { ids, status, review_note } });
+            toast(`อัปเดต ${ids.length} รายการ`);
+            load();
+          });
         };
         t.querySelector('#bulkOk').onclick = () => bulk('approved');
         t.querySelector('#bulkNo').onclick = () => bulk('rejected');
         t.querySelectorAll('[data-st]').forEach((b) => (b.onclick = async () => {
-          let review_note = '';
-          if (b.dataset.st === 'rejected') {
-            review_note = prompt('เหตุผลที่ไม่อนุมัติ (ไม่บังคับ)', '');
-            if (review_note === null) return;
+          const o = items.find((x) => String(x.id) === b.dataset.id);
+          if (b.dataset.st === 'pending') {
+            try { await api(`/api/admin/ot/${o.id}`, { method: 'PATCH', body: { status: 'pending' } }); toast('รีเซ็ตเป็นรออนุมัติแล้ว'); load(); } catch (err) { toast(err.message, true); }
+            return;
           }
-          try { await api(`/api/admin/ot/${b.dataset.id}`, { method: 'PATCH', body: { status: b.dataset.st, review_note } }); toast('บันทึกแล้ว'); load(); }
-          catch (err) { toast(err.message, true); }
+          const info = `<b>${esc(o.name)}</b> · OT ${esc(o.ot_type)} · ${esc(thDate(o.ot_date))}<br>ขอ ${esc(o.start_time)}–${esc(o.end_time)} (${num(o.hours)} ชม.) · สแกนตอนขอ ${esc(o.scan_in || '–')}–${esc(o.scan_out || '–')}
+            ${o.check ? `<div class="ot-check ${o.check.ok ? 'ok' : 'bad'}" style="margin-top:6px">${o.check.ok ? '✓' : '⚠'} ${esc(o.check.text)}</div>` : ''}`;
+          askReason(b.dataset.st, info, async (review_note) => {
+            await api(`/api/admin/ot/${o.id}`, { method: 'PATCH', body: { status: b.dataset.st, review_note } });
+            toast('บันทึกแล้ว');
+            load();
+          });
         }));
         t.querySelectorAll('[data-delot]').forEach((b) => (b.onclick = async () => {
           if (!confirm('ลบคำขอ OT นี้? ไม่สามารถกู้คืนได้')) return;

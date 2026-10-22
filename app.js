@@ -75,7 +75,7 @@
     first_name: (v) => (!v ? 'กรุณากรอกชื่อ' : /^[ก-๎]+$/.test(v) ? '' : 'ภาษาไทยเท่านั้น'),
     last_name: (v) => (!v ? 'กรุณากรอกนามสกุล' : /^[ก-๎]+$/.test(v) ? '' : 'ภาษาไทยเท่านั้น'),
     phone: (v) => (!v ? 'กรุณากรอกเบอร์โทร' : /^0\d{9}$/.test(v) ? '' : v[0] !== '0' ? 'ต้องขึ้นต้นด้วย 0' : `ต้องมี 10 หลัก (ตอนนี้ ${v.length} หลัก)`),
-    password: (v) => (!v ? 'กรุณาตั้งรหัสผ่าน' : v.length >= 6 ? '' : 'อย่างน้อย 6 ตัว'),
+    password: (v) => (!v ? 'กรุณาตั้งรหัสผ่าน' : /\s/.test(v) ? 'ห้ามเว้นวรรค' : !/^[!-~]+$/.test(v) ? 'ห้ามภาษาไทย ใช้ได้เฉพาะภาษาอังกฤษ ตัวเลข สัญลักษณ์' : v.length >= 6 ? '' : 'อย่างน้อย 6 ตัว'),
   };
   function setErr(input, msg) {
     const box = input.closest('.field');
@@ -1316,7 +1316,7 @@
       // แสดงคำขอที่รออยู่ หรือผลที่ยังไม่ผ่านมานาน (7 วัน)
       if (request.status !== 'pending' && Date.now() - Date.parse(request.created_at) > 7 * 86400000) return;
       box.innerHTML = `<div class="code-req ${request.status}">คำขอแก้รหัสเป็น <b>${esc(request.new_code)}</b>: ${esc(CODE_REQ_TH[request.status])}
-        ${request.review_note ? `<div class="sub">ผู้ดูแล: ${esc(request.review_note)}</div>` : ''}</div>`;
+        ${request.review_note ? `<div class="sub">เหตุผลผู้อนุมัติ: ${esc(request.review_note)}</div>` : ''}</div>`;
     } catch { /* ไม่แสดง */ }
   }
 
@@ -1420,7 +1420,7 @@
           <div class="card hist-item"><div class="main">
             <div class="top"><span><span class="badge ot">OT ${esc(o.ot_type)}</span>${o.scan_in ? ` <span class="badge">สแกน ${esc(o.scan_in)}–${esc(o.scan_out)}</span>` : ''}</span><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></div>
             <div><b>${esc(thDate(o.ot_date))}</b> · ${esc(o.start_time)}–${esc(o.end_time)} น. (${esc(o.hours)} ชม.)</div>
-            ${o.review_note ? `<div class="meta">หมายเหตุผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</div></div>` })),
+            ${o.review_note ? `<div class="meta">เหตุผลผู้อนุมัติ: ${esc(o.review_note)}</div>` : ''}</div></div>` })),
       ].sort((a, b) => b.at.localeCompare(a.at));
       document.getElementById('hist').innerHTML = items.length ? `<div class="hist">${items.map((i) => i.html).join('')}</div>` : '<div class="card empty">ยังไม่มีประวัติ</div>';
     } catch (err) {
