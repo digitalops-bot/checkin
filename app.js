@@ -1207,7 +1207,9 @@
       drawCalendar();
     } catch (err) {
       const b = document.getElementById('calBody');
-      if (b) b.innerHTML = `<div class="card empty">${esc(err.message)}</div>`;
+      if (!b) return;
+      b.innerHTML = `<div class="card empty">${esc(err.message)}<div style="margin-top:12px"><button class="btn primary" id="calRetry">ลองใหม่</button></div></div>`;
+      document.getElementById('calRetry').onclick = () => renderCalendar(calMonth);
     }
   }
 

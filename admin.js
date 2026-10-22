@@ -147,7 +147,14 @@
 
   // ---------- Auth ----------
   async function boot() {
-    const me = await Backend.request('GET', '/api/admin/me', { admin: true }).then((r) => r.data).catch(() => ({}));
+    root.innerHTML = '<div class="auth"><div class="card empty">กำลังเชื่อมต่อระบบ…</div></div>';
+    const r = await Backend.request('GET', '/api/admin/me', { admin: true }).catch(() => ({ status: 0, data: {} }));
+    if (!r.status) {
+      root.innerHTML = `<div class="auth"><div class="card empty"><p>${esc(r.data.error || 'เชื่อมต่อระบบไม่ได้')}</p><button class="btn primary" id="retryBoot">ลองใหม่</button></div></div>`;
+      document.getElementById('retryBoot').onclick = boot;
+      return;
+    }
+    const me = r.data || {};
     if (me.authed) return renderShell();
     const setup = !me.setup;
     root.innerHTML = `

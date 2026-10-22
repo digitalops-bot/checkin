@@ -25,13 +25,19 @@
     }
     // Google Apps Script: ส่งทุกอย่างเป็น POST แบบ text/plain (ไม่ต้องผ่าน CORS preflight)
     const payload = { method, path, body, token: token || undefined, admin_token: admin ? adminToken.get() || undefined : undefined };
+    // ไม่รอนานเกินไป: Google ตอบช้า/คิวเต็ม → แจ้งให้ลองใหม่ แทนการค้าง "กำลังโหลด" ไม่จบ
+    // (ลงเวลา/ล้างข้อความ Telegram ใช้เวลานานกว่าปกติ ให้รอได้นานกว่า)
+    const slow = /^\/api\/(attendance|admin\/telegram\/wipe|admin\/reset|admin\/employees\/\d+$)/.test(path);
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctrl && setTimeout(() => ctrl.abort(), slow ? 120000 : 35000);
     let res;
+    let out;
     try {
-      res = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow' });
-    } catch {
-      return { status: 0, data: { error: 'เชื่อมต่อระบบไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต' } };
-    }
-    const out = await res.json().catch(() => null);
+      res = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow', signal: ctrl?.signal });
+      out = await res.json().catch(() => null);
+    } catch (err) {
+      return { status: 0, data: { error: err?.name === 'AbortError' ? 'ระบบตอบช้ากว่าปกติ กรุณาลองใหม่อีกครั้ง' : 'เชื่อมต่อระบบไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต' } };
+    } finally { if (timer) clearTimeout(timer); }
     if (!out) return { status: 502, data: { error: 'ระบบไม่ตอบสนอง กรุณาลองใหม่' } };
     if (admin && out.data && out.data.admin_token) adminToken.set(out.data.admin_token);
     if (admin && out.status === 401) adminToken.set('');
