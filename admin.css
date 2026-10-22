@@ -314,3 +314,5 @@ button.stat { font: inherit; color: inherit; text-align: left; cursor: pointer; 
 .ot-check.bad { color: var(--bad, #c62828); }
 .reason-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 #rsnf textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font: inherit; background: var(--surface); color: var(--text); resize: vertical; }
+.db-links { display: grid; gap: 8px; }
+.db-link { display: grid; justify-items: start; gap: 2px; text-align: left; text-decoration: none; padding: 10px 14px; height: auto; }

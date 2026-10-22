@@ -1162,6 +1162,11 @@
           <h2>ลิงก์สำหรับพนักงาน</h2><p class="muted">ส่งลิงก์นี้ให้พนักงานเปิดในมือถือ แล้วกด “เพิ่มลงในหน้าจอหลัก” เพื่อใช้เป็นแอป</p>
           <div class="link-box"><input id="empUrl" value="${esc(empUrl)}" readonly><button class="btn ghost" id="copy" type="button">คัดลอก</button></div>
         </div>
+        <div class="card" id="dbLinks">
+          <h2>ลิงก์ฐานข้อมูล (เจ้าของระบบ)</h2>
+          <p class="muted">เปิดได้เฉพาะอีเมลเจ้าของระบบ · ใช้ดูข้อมูลเท่านั้น <b>ห้ามแก้ไข/ลบแถวหรือหัวคอลัมน์ในชีตด้วยมือ</b> และห้ามแชร์โฟลเดอร์รูป</p>
+          <div class="db-links muted">กำลังโหลด…</div>
+        </div>
         <form class="card tg-card" id="tgf" autocomplete="off">
           <h2>ส่งรูปสแกนไป Telegram</h2>
           <p class="muted">ทุกครั้งที่พนักงานสแกน ระบบส่งรูปพร้อมชื่อ เวลา สถานที่ และพิกัดเข้าช่อง Telegram ให้อัตโนมัติ
@@ -1354,6 +1359,18 @@
     document.getElementById('copy').onclick = async () => {
       try { await navigator.clipboard.writeText(empUrl); toast('คัดลอกลิงก์แล้ว'); } catch { document.getElementById('empUrl').select(); }
     };
+    // ---- ลิงก์ฐานข้อมูล ----
+    api('/api/admin/links').then((l) => {
+      const box = document.querySelector('#dbLinks .db-links');
+      if (!box) return;
+      const row = (label, url, desc) => (url ? `<a class="btn ghost db-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer"><b>${label}</b><span class="sub">${desc}</span></a>` : '');
+      box.classList.remove('muted');
+      box.innerHTML = l.spreadsheet || l.folder ? [
+        row('📊 ฐานข้อมูล (Google Sheets)', l.spreadsheet, 'พนักงาน การลงเวลา (แยกแผ่นรายเดือน) OT คำร้อง การตั้งค่า'),
+        row('🖼️ โฟลเดอร์รูปสแกน (Google Drive)', l.folder, 'รูปสแกนเข้า-ออกงานทั้งหมด'),
+        row('⚙️ ระบบหลังบ้าน (Apps Script)', l.script, 'โค้ดระบบและประวัติการทำงาน'),
+      ].join('') : `<span class="muted">ระบบนี้เก็บข้อมูลในเครื่อง: ${esc(l.local || '')}</span>`;
+    }).catch(() => {});
     // ---- Telegram ----
     const tgf = document.getElementById('tgf');
     const tgState = document.getElementById('tgState');
