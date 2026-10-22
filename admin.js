@@ -154,6 +154,7 @@
   const qs = (extra = {}) => new URLSearchParams(Object.entries({ ...filter, ...extra }).filter(([, v]) => v)).toString();
 
   // ---------- Auth ----------
+  let ME = { role: 'owner', name: 'เจ้าของระบบ', username: 'admin' }; // ผู้ดูแลที่เข้าสู่ระบบอยู่
   async function boot() {
     root.innerHTML = '<div class="auth"><div class="card empty">กำลังเชื่อมต่อระบบ…</div></div>';
     const r = await Backend.request('GET', '/api/admin/me', { admin: true }).catch(() => ({ status: 0, data: {} }));
@@ -163,13 +164,14 @@
       return;
     }
     const me = r.data || {};
-    if (me.authed) return renderShell();
+    if (me.authed) { ME = { role: me.role || 'owner', name: me.name || 'เจ้าของระบบ', username: me.username || 'admin' }; return renderShell(); }
     const setup = !me.setup;
     root.innerHTML = `
       <div class="auth"><form class="card" id="af">
         <img src="icon.svg" alt="">
         <h1>${setup ? 'ตั้งรหัสผ่านผู้ดูแล' : 'เข้าสู่ระบบผู้ดูแล'}</h1>
         <p class="muted">${setup ? 'ใช้งานครั้งแรก กรุณาตั้งรหัสผ่าน (อย่างน้อย 8 ตัวอักษร)' : 'ระบบลงเวลาทำงานพนักงานนอก'}</p>
+        ${setup ? '' : '<label class="field"><span>ชื่อผู้ใช้ <small>เจ้าของระบบเว้นว่างได้</small></span><input name="user" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="admin"></label>'}
         <label class="field"><span>รหัสผ่าน</span><input type="password" name="pw" autocomplete="${setup ? 'new-password' : 'current-password'}" required autofocus></label>
         ${setup ? '<label class="field"><span>ยืนยันรหัสผ่าน</span><input type="password" name="pw2" autocomplete="new-password" required></label>' : ''}
         <button class="btn primary big" type="submit">${setup ? 'บันทึกและเข้าสู่ระบบ' : 'เข้าสู่ระบบ'}</button>
@@ -179,8 +181,8 @@
       e.preventDefault();
       if (setup && f.pw.value !== f.pw2.value) return toast('รหัสผ่านไม่ตรงกัน', true);
       try {
-        await api(setup ? '/api/admin/setup' : '/api/admin/login', { body: { password: f.pw.value } });
-        renderShell();
+        await api(setup ? '/api/admin/setup' : '/api/admin/login', { body: { password: f.pw.value, username: setup ? undefined : f.user.value.trim() } });
+        boot();
       } catch (err) { toast(err.message, true); f.pw.select(); }
     };
   }
@@ -210,6 +212,7 @@
           <div class="brand"><img src="icon.svg" alt=""><div><b>ระบบลงเวลา</b><small>ผู้ดูแล · พนักงานนอก</small></div></div>
           ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
           <div class="spacer"></div>
+          <div class="who-admin" title="${esc(ME.username)}">${ME.role === 'owner' ? '👑' : '👤'} <span>${esc(ME.name)}</span></div>
           <button class="nav-btn" id="reloadBtn">${icon('refresh')}<span>รีเฟรช</span></button>
           <button class="nav-btn" id="logout">${icon('out')}<span>ออกจากระบบ</span></button>
         </aside>
@@ -653,7 +656,7 @@
                 <td class="nowrap t-time">${esc(o.start_time)}–${esc(o.end_time)}</td>
                 <td class="num">${num(o.hours)}</td>
                 <td>${o.check ? `<span class="ot-check ${o.check.ok ? 'ok' : 'bad'}">${o.check.ok ? '✓' : '⚠'} ${esc(o.check.text)}</span>` : ''}</td>
-                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub"><b>เหตุผลผู้อนุมัติ:</b> ${esc(o.review_note)}</div>` : ''}</td>
+                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub"><b>เหตุผล${o.reviewed_by ? ` (${esc(o.reviewed_by)})` : ''}:</b> ${esc(o.review_note)}</div>` : ''}</td>
                 <td><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></td>
                 <td><div class="act">
                   ${o.status !== 'approved' ? `<button class="btn ok sm" data-st="approved" data-id="${o.id}">อนุมัติ</button>` : ''}
@@ -1119,7 +1122,7 @@
             <td class="nowrap">${esc(thDate(a.work_date))}<div class="sub">ส่ง ${esc(thDateTime(a.created_at))}</div></td>
             <td>${nameCell(a.employee_id, a.name, a.emp_code)}</td>
             <td><span class="sub" style="color:var(--bad)">${esc(a.issues || '-')}</span></td>
-            <td><b>${esc(a.reason)}</b><div>${esc(a.note)}</div>${a.review_note ? `<div class="sub">ผู้ดูแล: ${esc(a.review_note)}</div>` : ''}</td>
+            <td><b>${esc(a.reason)}</b><div>${esc(a.note)}</div>${a.review_note || a.reviewed_by ? `<div class="sub">ผู้ดูแล${a.reviewed_by ? ` (${esc(a.reviewed_by)})` : ''}: ${esc(a.review_note || '-')}</div>` : ''}</td>
             <td><span class="badge ${a.status}">${APPEAL_TH[a.status]}</span></td>
             <td><div class="act">
               ${a.status !== 'approved' ? `<button class="btn ok sm" data-id="${a.id}" data-st="approved">อนุมัติ</button>` : ''}
@@ -1162,9 +1165,22 @@
           <h2>ลิงก์สำหรับพนักงาน</h2><p class="muted">ส่งลิงก์นี้ให้พนักงานเปิดในมือถือ แล้วกด “เพิ่มลงในหน้าจอหลัก” เพื่อใช้เป็นแอป</p>
           <div class="link-box"><input id="empUrl" value="${esc(empUrl)}" readonly><button class="btn ghost" id="copy" type="button">คัดลอก</button></div>
         </div>
+        ${ME.role === 'owner' ? `<div class="card" id="admCard">
+          <h2>ผู้ดูแลระบบ</h2>
+          <p class="muted">ผู้ดูแลที่เพิ่มทำงานได้ทุกอย่างเหมือนเจ้าของระบบ ยกเว้นเพิ่ม/ลบผู้ดูแล ซึ่งเจ้าของระบบ (คุณ) ทำได้คนเดียว · ระบบบันทึกชื่อผู้อนุมัติ OT/คำร้องทุกครั้ง</p>
+          <div id="admList" class="adm-list"><div class="muted">กำลังโหลด…</div></div>
+          <form id="admf" class="adm-form" autocomplete="off">
+            <b>เพิ่มผู้ดูแล</b>
+            <label class="field"><span>ชื่อที่แสดง</span><input name="name" maxlength="60" placeholder="เช่น คุณสมหญิง (HR)" required></label>
+            <label class="field"><span>ชื่อผู้ใช้ <small>ภาษาอังกฤษตัวเล็ก/ตัวเลข 3–20 ตัว</small></span><input name="username" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="เช่น somying" required></label>
+            <label class="field"><span>รหัสผ่านเริ่มต้น <small>อย่างน้อย 8 ตัว · ให้เขาเปลี่ยนเองหลังเข้าสู่ระบบ</small></span>
+              <div class="link-box"><input name="password" autocomplete="new-password" spellcheck="false" required><button type="button" class="btn ghost" id="admGen">สุ่มรหัส</button></div></label>
+            <button class="btn primary" type="submit">เพิ่มผู้ดูแล</button>
+          </form>
+        </div>` : ''}
         <div class="card" id="dbLinks">
-          <h2>ลิงก์ฐานข้อมูล (เจ้าของระบบ)</h2>
-          <p class="muted">เปิดได้เฉพาะอีเมลเจ้าของระบบ · ใช้ดูข้อมูลเท่านั้น <b>ห้ามแก้ไข/ลบแถวหรือหัวคอลัมน์ในชีตด้วยมือ</b> และห้ามแชร์โฟลเดอร์รูป</p>
+          <h2>ลิงก์ฐานข้อมูล</h2>
+          <p class="muted">เปิดได้เฉพาะอีเมล Google ของเจ้าของระบบ (หรือที่เจ้าของแชร์ให้) · ใช้ดูข้อมูลเท่านั้น <b>ห้ามแก้ไข/ลบแถวหรือหัวคอลัมน์ในชีตด้วยมือ</b> และห้ามแชร์โฟลเดอร์รูป</p>
           <div class="db-links muted">กำลังโหลด…</div>
         </div>
         <form class="card tg-card" id="tgf" autocomplete="off">
@@ -1216,7 +1232,7 @@
           <p class="sub">⚠ ลบแล้วกู้คืนไม่ได้ · ห้ามใช้หลังเปิดใช้งานจริงแล้ว</p>
         </form>
         <form class="card" id="pwf">
-          <h2>เปลี่ยนรหัสผ่านผู้ดูแล</h2><p class="muted">อย่างน้อย 8 ตัวอักษร</p>
+          <h2>เปลี่ยนรหัสผ่านของฉัน</h2><p class="muted">${esc(ME.name)} · อย่างน้อย 8 ตัวอักษร ภาษาอังกฤษ/ตัวเลข/สัญลักษณ์</p>
           <label class="field"><span>รหัสผ่านเดิม</span><input type="password" name="current" autocomplete="current-password" required></label>
           <label class="field"><span>รหัสผ่านใหม่</span><input type="password" name="next" autocomplete="new-password" required></label>
           <label class="field"><span>ยืนยันรหัสผ่านใหม่</span><input type="password" name="next2" autocomplete="new-password" required></label>
@@ -1359,6 +1375,54 @@
     document.getElementById('copy').onclick = async () => {
       try { await navigator.clipboard.writeText(empUrl); toast('คัดลอกลิงก์แล้ว'); } catch { document.getElementById('empUrl').select(); }
     };
+    // ---- ผู้ดูแลระบบ (เจ้าของระบบเท่านั้น) ----
+    if (ME.role === 'owner') {
+      const admList = document.getElementById('admList');
+      const genPw = () => {
+        const cs = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        const r = crypto.getRandomValues(new Uint32Array(10));
+        return Array.from(r, (x) => cs[x % cs.length]).join('');
+      };
+      const loadAdmins = async () => {
+        try {
+          const { items } = await api('/api/admin/admins');
+          if (!admList.isConnected) return;
+          admList.innerHTML = `<div class="adm-item owner"><span>👑 <b>เจ้าของระบบ</b> <span class="sub">ชื่อผู้ใช้ admin (หรือเว้นว่าง)</span></span></div>` + (items.length ? items.map((a) => `
+            <div class="adm-item${a.active ? '' : ' off'}">
+              <span>👤 <b>${esc(a.name)}</b> <span class="sub">ชื่อผู้ใช้ ${esc(a.username)} · ${a.active ? (a.last_login_at ? `เข้าใช้ล่าสุด ${esc(thDateTime(a.last_login_at))}` : 'ยังไม่เคยเข้าใช้') : 'ปิดใช้งาน'}</span></span>
+              <span class="act">
+                <button type="button" class="btn ghost sm" data-apw="${esc(a.username)}">ตั้งรหัสผ่านใหม่</button>
+                <button type="button" class="btn ${a.active ? 'danger' : 'ok'} sm" data-aact="${esc(a.username)}" data-to="${a.active ? 0 : 1}">${a.active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+                <button type="button" class="btn danger sm" data-adel="${esc(a.username)}" data-name="${esc(a.name)}">ลบ</button>
+              </span></div>`).join('') : '<div class="muted">ยังไม่มีผู้ดูแลเพิ่มเติม</div>');
+          admList.querySelectorAll('[data-apw]').forEach((b) => (b.onclick = async () => {
+            const pw = prompt(`ตั้งรหัสผ่านใหม่ให้ ${b.dataset.apw} (อย่างน้อย 8 ตัว ภาษาอังกฤษ/ตัวเลข/สัญลักษณ์)`, genPw());
+            if (pw === null) return;
+            try { await api(`/api/admin/admins/${b.dataset.apw}`, { method: 'PATCH', body: { password: pw.trim() } }); toast('ตั้งรหัสผ่านใหม่แล้ว (เขาจะถูกออกจากระบบ ต้องเข้าใหม่ด้วยรหัสนี้)'); loadAdmins(); } catch (err) { toast(err.message, true); }
+          }));
+          admList.querySelectorAll('[data-aact]').forEach((b) => (b.onclick = async () => {
+            try { await api(`/api/admin/admins/${b.dataset.aact}`, { method: 'PATCH', body: { active: b.dataset.to === '1' } }); toast(b.dataset.to === '1' ? 'เปิดใช้งานแล้ว' : 'ปิดใช้งานแล้ว (ออกจากระบบทันที)'); loadAdmins(); } catch (err) { toast(err.message, true); }
+          }));
+          admList.querySelectorAll('[data-adel]').forEach((b) => (b.onclick = async () => {
+            if (!confirm(`ลบผู้ดูแล ${b.dataset.name} (${b.dataset.adel})?\nเขาจะเข้าระบบไม่ได้อีก (ประวัติการอนุมัติที่เคยทำยังอยู่)`)) return;
+            try { await api(`/api/admin/admins/${b.dataset.adel}`, { method: 'DELETE' }); toast('ลบผู้ดูแลแล้ว'); loadAdmins(); } catch (err) { toast(err.message, true); }
+          }));
+        } catch (err) { if (admList.isConnected) admList.innerHTML = `<div class="muted">${esc(err.message)}</div>`; }
+      };
+      const admf = document.getElementById('admf');
+      document.getElementById('admGen').onclick = () => { admf.password.value = genPw(); };
+      admf.onsubmit = async (e) => {
+        e.preventDefault();
+        const body = { name: admf.name.value.trim(), username: admf.username.value.trim().toLowerCase(), password: admf.password.value.trim() };
+        try {
+          await api('/api/admin/admins', { method: 'POST', body });
+          alert(`เพิ่มผู้ดูแลแล้ว ส่งข้อมูลนี้ให้ ${body.name}:\n\nลิงก์: ${new URL('admin.html', location.href).href}\nชื่อผู้ใช้: ${body.username}\nรหัสผ่าน: ${body.password}\n\n(แนะนำให้เขาเปลี่ยนรหัสผ่านหลังเข้าสู่ระบบครั้งแรก)`);
+          admf.reset();
+          loadAdmins();
+        } catch (err) { toast(err.message, true); }
+      };
+      loadAdmins();
+    }
     // ---- ลิงก์ฐานข้อมูล ----
     api('/api/admin/links').then((l) => {
       const box = document.querySelector('#dbLinks .db-links');
