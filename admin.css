@@ -266,3 +266,10 @@ button.stat { font: inherit; color: inherit; text-align: left; cursor: pointer; 
 .tg-caption { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; cursor: pointer; }
 .tg-caption input { width: 18px; height: 18px; margin-top: 3px; flex: none; }
 .tg-caption .sub { display: block; }
+/* เลือกวันที่แบบไทย */
+.hol-add { display: flex; flex-wrap: wrap; align-items: center; }
+.hol-add #holName { flex: 1 1 200px; width: auto; }
+.thdate { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.thdate select { width: auto; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; }
+.thdate select[data-p=m] { min-width: 130px; }
+.tg-chats .btn.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }

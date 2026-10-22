@@ -27,6 +27,34 @@
   // ---------- utils ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pad = (n) => String(n).padStart(2, '0');
+  // ช่องเลือกวันที่แบบไทย (วัน / เดือน / ปี พ.ศ.) แทน input type=date ที่แสดงตามภาษาเครื่อง (เดือน/วัน/ปี ค.ศ.)
+  const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+  const thDateInput = (id) => {
+    const cy = new Date().getFullYear();
+    const years = [cy - 1, cy, cy + 1, cy + 2];
+    return `<span class="thdate" id="${id}">
+      <select data-p="d" aria-label="วัน"><option value="">วัน</option>${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('')}</select>
+      <select data-p="m" aria-label="เดือน"><option value="">เดือน</option>${TH_MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}</select>
+      <select data-p="y" aria-label="ปี พ.ศ."><option value="">ปี พ.ศ.</option>${years.map((y) => `<option value="${y}">${y + 543}</option>`).join('')}</select></span>`;
+  };
+  // คืน 'YYYY-MM-DD' · '' = ยังไม่เลือก · null = วันที่ไม่มีจริง (เช่น 31 กุมภาพันธ์)
+  const readThDate = (id) => {
+    const el = document.getElementById(id);
+    const [d, m, y] = ['d', 'm', 'y'].map((p) => el.querySelector(`[data-p=${p}]`).value);
+    if (!d && !m && !y) return '';
+    if (!d || !m || !y) return null;
+    const iso = `${y}-${pad(m)}-${pad(d)}`;
+    return new Date(`${iso}T12:00:00Z`).getUTCDate() === Number(d) ? iso : null;
+  };
+  const setThDate = (id, iso) => {
+    const el = document.getElementById(id);
+    const [y, m, d] = iso ? iso.split('-').map(Number) : ['', '', ''];
+    const ys = el.querySelector('[data-p=y]');
+    if (y && !ys.querySelector(`option[value="${y}"]`)) ys.insertAdjacentHTML('beforeend', `<option value="${y}">${y + 543}</option>`);
+    el.querySelector('[data-p=d]').value = d;
+    el.querySelector('[data-p=m]').value = m;
+    ys.value = y;
+  };
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const thDate = (iso) => {
     if (!iso) return '';
@@ -70,6 +98,8 @@
 
   let toastTimer;
   function toast(msg, isError = false) {
+    // ข้อผิดพลาดจากการเขียนลงหน้าที่ปิดไปแล้ว (เปลี่ยนหน้าระหว่างโหลด) ไม่ต้องแจ้งผู้ใช้
+    if (isError && /properties of (null|undefined)/.test(String(msg))) { console.warn(msg); return; }
     toastEl.textContent = msg;
     toastEl.className = 'show' + (isError ? ' error' : '');
     clearTimeout(toastTimer);
@@ -660,7 +690,7 @@
         ? 'เปิดอยู่: พนักงานที่สมัครใหม่ต้องรออนุมัติในหน้านี้ก่อน จึงจะเข้าสู่ระบบได้'
         : 'ปิดอยู่: พนักงานสมัครแล้วเข้าใช้งานได้ทันที';
     };
-    api('/api/admin/registration').then((r) => { sw.checked = r.mode === 'approval'; sw.disabled = false; regText(r.mode); }).catch((e) => toast(e.message, true));
+    api('/api/admin/registration').then((r) => { if (!sw.isConnected) return; sw.checked = r.mode === 'approval'; sw.disabled = false; regText(r.mode); }).catch((e) => { if (sw.isConnected) toast(e.message, true); });
     sw.onchange = async () => {
       const mode = sw.checked ? 'approval' : 'open';
       sw.disabled = true;
@@ -904,9 +934,11 @@
     const f = document.getElementById('cf');
     try {
       const { items } = await api('/api/admin/employees');
+      if (!f.isConnected) return; // เปลี่ยนไปหน้าอื่นระหว่างโหลด
       f.emp.innerHTML = `<option value="">— เลือกพนักงาน (${items.length} คน) —</option>` + items.map((e) => `<option value="${e.id}" ${String(e.id) === String(calState.employee_id) ? 'selected' : ''}>${esc(e.emp_code)} · ${esc(e.title + e.first_name + ' ' + e.last_name)}${e.active ? '' : ' (ปิดใช้งาน)'}</option>`).join('');
-    } catch (err) { toast(err.message, true); }
+    } catch (err) { if (!f.isConnected) return; toast(err.message, true); }
     const load = async () => {
+      if (!f.isConnected) return;
       calState.employee_id = f.emp.value;
       calState.month = f.month.value || thisMonth();
       const out = document.getElementById('calOut');
@@ -914,8 +946,9 @@
       out.innerHTML = '<div class="card empty">กำลังโหลด…</div>';
       try {
         const data = await api(`/api/admin/calendar?employee_id=${calState.employee_id}&month=${calState.month}`);
+        if (!out.isConnected) return;
         drawAdminCal(out, data, load);
-      } catch (err) { out.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; }
+      } catch (err) { if (out.isConnected) out.innerHTML = `<div class="card empty">${esc(err.message)}</div>`; }
     };
     const shiftMonth = (n) => { const [y, m] = (f.month.value || thisMonth()).split('-').map(Number); f.month.value = ymd(new Date(y, m - 1 + n, 1)).slice(0, 7); load(); };
     f.emp.onchange = load;
@@ -1064,7 +1097,7 @@
           <label class="field"><span>Bot Token</span><input name="token" type="password" autocomplete="new-password" spellcheck="false"></label>
           <div class="row" style="flex-wrap:wrap;gap:8px;margin:-4px 0 10px"><button class="btn ghost sm" type="button" id="tgFind">ค้นหากลุ่ม/ช่อง</button></div>
           <div id="tgChats" class="tg-chats"></div>
-          <label class="field"><span>Chat ID ของช่อง/กลุ่ม</span><input name="chat_id" placeholder="-1001234567890" spellcheck="false"></label>
+          <label class="field"><span>Chat ID ของช่อง/กลุ่ม <small>ซ่อนไว้เพื่อความปลอดภัย</small></span><input name="chat_id" type="password" autocomplete="off" placeholder="-1001234567890" spellcheck="false"></label>
           <div class="tg-modes">
             <label><input type="radio" name="mode" value="all"> ส่งทั้งเข้างานและออกงาน</label>
             <label><input type="radio" name="mode" value="in"> ส่งเฉพาะเข้างาน</label>
@@ -1115,11 +1148,13 @@
             <div class="wk">${WEEK_TH.map((w, i) => `<label><input type="checkbox" name="off" value="${i}"> ${w}</label>`).join('')}</div></div>
           <div class="field"><span class="field-label">วันหยุดบริษัท (วันสำคัญ) <small>วันที่กำหนดจะเป็นสีเทา ใครมาทำงานจะคิดเป็น OT 2/3 และส่งให้อนุมัติ</small></span>
             <div class="hol-add">
-              <input type="date" id="holDate" aria-label="วันที่">
+              ${thDateInput('holDate')}
               <input id="holName" placeholder="ชื่อวันหยุด เช่น วันปิยมหาราช" maxlength="60">
               <button type="button" class="btn ghost" id="holAdd">+ เพิ่มวันหยุด</button>
             </div>
             <div id="holList" class="hol-list"></div></div>
+          <div class="field"><span class="field-label">เริ่มนับสถิติตั้งแต่วันที่ <small>วันก่อนหน้านี้จะไม่ขึ้นสีแดงและไม่นับเป็นวันขาด · ระบบตั้งเป็นวันนี้ให้อัตโนมัติเมื่อล้างข้อมูลการลงเวลา · ว่างไว้ = นับตั้งแต่วันที่พนักงานได้รับอนุมัติ</small></span>
+            <div class="hol-add">${thDateInput('cntFrom')}<button type="button" class="btn ghost sm" id="cntToday">วันนี้</button><button type="button" class="btn ghost sm" id="cntClear">ล้าง</button></div></div>
           <small class="err" id="schErr"></small>
           <button class="btn primary" type="submit">บันทึกตารางงาน</button>
         </form>
@@ -1138,6 +1173,7 @@
       schf.querySelectorAll('[name=off]').forEach((cb) => (cb.checked = s.weekly_off.includes(Number(cb.value))));
       holidays = [...s.holidays];
       drawHolidays();
+      setThDate('cntFrom', s.count_from || '');
     };
     // ---- วันหยุดบริษัท: เพิ่ม/ลบทีละวัน แล้วกด "บันทึกตารางงาน" ----
     let holidays = [];
@@ -1153,17 +1189,20 @@
       el.querySelectorAll('[data-del-hol]').forEach((b) => (b.onclick = () => { holidays.splice(Number(b.dataset.delHol), 1); drawHolidays(); }));
     };
     document.getElementById('holAdd').onclick = () => {
-      const date = document.getElementById('holDate').value;
+      const date = readThDate('holDate');
       const name = document.getElementById('holName').value.trim() || 'วันหยุดบริษัท';
+      if (date === null) return toast('วันที่ไม่ถูกต้อง กรุณาเลือกวัน เดือน ปี ให้ครบ', true);
       if (!date) return toast('กรุณาเลือกวันที่', true);
       if (holidays.some((h) => h.date === date)) return toast('วันนี้เป็นวันหยุดอยู่แล้ว', true);
       holidays.push({ date, name });
-      document.getElementById('holDate').value = '';
+      setThDate('holDate', '');
       document.getElementById('holName').value = '';
       drawHolidays();
       toast('เพิ่มแล้ว อย่าลืมกด "บันทึกตารางงาน"');
     };
-    api('/api/admin/schedule').then((r) => fillSchedule(r.schedule)).catch((err) => toast(err.message, true));
+    document.getElementById('cntToday').onclick = () => setThDate('cntFrom', ymd(new Date()));
+    document.getElementById('cntClear').onclick = () => setThDate('cntFrom', '');
+    api('/api/admin/schedule').then((r) => { if (schf.isConnected) fillSchedule(r.schedule); }).catch((err) => { if (schf.isConnected) toast(err.message, true); });
     schf.onsubmit = async (e) => {
       e.preventDefault();
       const err = document.getElementById('schErr');
@@ -1172,10 +1211,12 @@
         id: r.dataset.id, name: r.querySelector('[name=sname]').value.trim(), start: r.querySelector('[name=sstart]').value, end: r.querySelector('[name=send]').value,
       }));
       if (shifts.some((s) => !s.start || !s.end || s.start === s.end)) { err.textContent = 'กรุณาใส่เวลาเข้างานและเลิกงานของทุกกะให้ถูกต้อง'; return; }
+      const countFrom = readThDate('cntFrom');
+      if (countFrom === null) { err.textContent = 'วันที่เริ่มนับสถิติไม่ถูกต้อง กรุณาเลือกวัน เดือน ปี ให้ครบ'; return; }
       try {
         const r = await api('/api/admin/schedule', { method: 'PUT', body: { schedule: {
           shifts, grace_min: Number(schf.grace.value) || 0, break_hours: Number(schf.brk.value) || 0,
-          weekly_off: [...schf.querySelectorAll('[name=off]:checked')].map((cb) => Number(cb.value)), holidays,
+          weekly_off: [...schf.querySelectorAll('[name=off]:checked')].map((cb) => Number(cb.value)), holidays, count_from: countFrom,
         } } });
         fillSchedule(r.schedule);
         toast('บันทึกตารางงานแล้ว');
@@ -1236,8 +1277,11 @@
     const tgf = document.getElementById('tgf');
     const tgState = document.getElementById('tgState');
     const tgShow = (t) => {
+      if (!tgf.isConnected) return; // ผู้ดูแลเปลี่ยนไปหน้าอื่นแล้ว
       tgf.mode.forEach((r) => (r.checked = r.value === t.mode));
-      tgf.chat_id.value = t.chat_id || '';
+      // Chat ID ไม่ส่งมาที่หน้าเว็บ แสดงแค่ 4 ตัวท้าย · ไม่พิมพ์ใหม่ = ใช้ค่าเดิม
+      tgf.chat_id.value = '';
+      tgf.chat_id.placeholder = t.has_chat ? `บันทึกไว้แล้ว (${t.chat_hint}) · ใส่ใหม่ถ้าต้องการเปลี่ยน` : '-1001234567890';
       tgf.caption.checked = t.caption === true;
       tgf.token.value = '';
       tgf.token.placeholder = t.has_token ? `บันทึกไว้แล้ว (${t.token_hint}) · พิมพ์ใหม่ถ้าต้องการเปลี่ยน` : '123456789:AAH…';
@@ -1247,14 +1291,18 @@
       if (t.last_error) st.push(`<div class="tg-err">⚠ ส่งไม่สำเร็จล่าสุด ${esc(thDateTime(t.last_error_at))}: ${esc(t.last_error)}</div>`);
       tgState.innerHTML = st.join(' ');
     };
-    api('/api/admin/telegram').then(tgShow).catch((e) => { tgState.textContent = e.message; });
+    api('/api/admin/telegram').then(tgShow).catch((e) => { if (tgState.isConnected) tgState.textContent = e.message; });
     const tgBusy = async (btn, fn) => { btn.disabled = true; try { await fn(); } catch (err) { toast(err.message, true); } finally { btn.disabled = false; } };
     document.getElementById('tgFind').onclick = (e) => tgBusy(e.currentTarget, async () => {
       const { chats } = await api('/api/admin/telegram/chats', { method: 'POST', body: { token: tgf.token.value.trim() } });
       const box = document.getElementById('tgChats');
       if (!chats.length) { box.innerHTML = '<div class="hint">ยังไม่พบ: เพิ่มบอทเป็นผู้ดูแลของช่อง/กลุ่ม แล้วโพสต์ข้อความอะไรก็ได้ 1 ครั้งในช่อง/กลุ่มนั้น แล้วกดค้นหาอีกครั้ง</div>'; return; }
-      box.innerHTML = chats.map((c) => `<button type="button" class="btn ghost sm" data-chat="${esc(c.id)}">${c.type === 'channel' ? '📢' : '👥'} ${esc(c.title)} <span class="sub">${esc(c.id)}</span></button>`).join(' ');
-      box.querySelectorAll('[data-chat]').forEach((b) => (b.onclick = () => { tgf.chat_id.value = b.dataset.chat; toast('เลือกแล้ว กด "บันทึก" เพื่อใช้งาน'); }));
+      box.innerHTML = chats.map((c) => `<button type="button" class="btn ghost sm" data-chat="${esc(c.id)}">${c.type === 'channel' ? '📢' : '👥'} ${esc(c.title)}</button>`).join(' ');
+      box.querySelectorAll('[data-chat]').forEach((b) => (b.onclick = () => {
+        tgf.chat_id.value = b.dataset.chat;
+        box.querySelectorAll('[data-chat]').forEach((x) => x.classList.toggle('on', x === b));
+        toast('เลือกแล้ว กด "บันทึก" เพื่อใช้งาน');
+      }));
     });
     document.getElementById('tgTest').onclick = (e) => tgBusy(e.currentTarget, async () => {
       await api('/api/admin/telegram/test', { method: 'POST', body: { token: tgf.token.value.trim(), chat_id: tgf.chat_id.value.trim() } });
@@ -1263,7 +1311,8 @@
     tgf.onsubmit = (e) => {
       e.preventDefault();
       tgBusy(tgf.querySelector('[type=submit]'), async () => {
-        const body = { chat_id: tgf.chat_id.value.trim(), mode: tgf.mode.value, caption: tgf.caption.checked };
+        const body = { mode: tgf.mode.value, caption: tgf.caption.checked };
+        if (tgf.chat_id.value.trim()) body.chat_id = tgf.chat_id.value.trim();
         if (tgf.token.value.trim()) body.token = tgf.token.value.trim();
         tgShow(await api('/api/admin/telegram', { method: 'PUT', body }));
         toast('บันทึกการตั้งค่า Telegram แล้ว');
