@@ -28,6 +28,19 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pad = (n) => String(n).padStart(2, '0');
   // ช่องเลือกวันที่แบบไทย (วัน / เดือน / ปี พ.ศ.) แทน input type=date ที่แสดงตามภาษาเครื่อง (เดือน/วัน/ปี ค.ศ.)
+  // ช่องเวลาแบบ 24 ชั่วโมง (ชั่วโมง : นาที) แทน input type=time ที่แสดง AM/PM ตามภาษาเครื่อง
+  const time24Input = (name, value) => {
+    const [h, m] = (value || '00:00').split(':');
+    const mins = [...new Set([...Array.from({ length: 12 }, (_, i) => pad(i * 5)), m])].sort();
+    return `<span class="time24" data-name="${name}">
+      <select data-p="h" aria-label="ชั่วโมง">${Array.from({ length: 24 }, (_, i) => `<option${pad(i) === h ? ' selected' : ''}>${pad(i)}</option>`).join('')}</select>
+      <b>:</b>
+      <select data-p="m" aria-label="นาที">${mins.map((x) => `<option${x === m ? ' selected' : ''}>${x}</option>`).join('')}</select> <small>น.</small></span>`;
+  };
+  const readTime24 = (root, name) => {
+    const el = root.querySelector(`.time24[data-name="${name}"]`);
+    return `${el.querySelector('[data-p=h]').value}:${el.querySelector('[data-p=m]').value}`;
+  };
   const TH_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
   const thDateInput = (id) => {
     const cy = new Date().getFullYear();
@@ -1165,8 +1178,8 @@
       document.getElementById('shiftRows').innerHTML = s.shifts.map((x, i) => `
         <div class="sch-row" data-shift="${i}" data-id="${esc(x.id)}">
           <label class="field"><span>ชื่อกะ</span><input name="sname" value="${esc(x.name)}" maxlength="40"></label>
-          <label class="field"><span>เข้างาน</span><input type="time" name="sstart" value="${esc(x.start)}"></label>
-          <label class="field"><span>เลิกงาน</span><input type="time" name="send" value="${esc(x.end)}"></label>
+          <div class="field"><span class="field-label">เข้างาน</span>${time24Input('sstart', x.start)}</div>
+          <div class="field"><span class="field-label">เลิกงาน</span>${time24Input('send', x.end)}</div>
         </div>`).join('');
       schf.grace.value = s.grace_min;
       schf.brk.value = s.break_hours;
@@ -1208,7 +1221,7 @@
       const err = document.getElementById('schErr');
       err.textContent = '';
       const shifts = [...schf.querySelectorAll('[data-shift]')].map((r) => ({
-        id: r.dataset.id, name: r.querySelector('[name=sname]').value.trim(), start: r.querySelector('[name=sstart]').value, end: r.querySelector('[name=send]').value,
+        id: r.dataset.id, name: r.querySelector('[name=sname]').value.trim(), start: readTime24(r, 'sstart'), end: readTime24(r, 'send'),
       }));
       if (shifts.some((s) => !s.start || !s.end || s.start === s.end)) { err.textContent = 'กรุณาใส่เวลาเข้างานและเลิกงานของทุกกะให้ถูกต้อง'; return; }
       const countFrom = readThDate('cntFrom');

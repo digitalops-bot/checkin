@@ -273,3 +273,10 @@ button.stat { font: inherit; color: inherit; text-align: left; cursor: pointer; 
 .thdate select { width: auto; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; }
 .thdate select[data-p=m] { min-width: 130px; }
 .tg-chats .btn.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+/* เวลาแบบ 24 ชั่วโมง */
+.time24 { display: inline-flex; align-items: center; gap: 6px; }
+.time24 select { min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-variant-numeric: tabular-nums; }
+.time24 small { color: var(--muted); }
+.field .time24, .field .thdate { flex-wrap: nowrap; }
+.field .time24 select, .field .thdate select { width: auto; flex: none; display: inline-block; }
+.field .time24 b { display: inline; }
