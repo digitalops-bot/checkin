@@ -1114,7 +1114,7 @@
 
   // ---------- ปฏิทินพนักงาน ----------
   const DAY_STATUS = {
-    ok: 'ปกติ', problem: 'ไม่ถูกต้อง', absent: 'ไม่มีการสแกน', no_checkin: 'ไม่มีสแกนเข้า', no_checkout: 'ไม่มีสแกนออก',
+    ok: 'ปกติ', problem: 'ต้องตรวจสอบ', absent: 'ไม่มีการสแกน', no_checkin: 'ไม่มีสแกนเข้า', no_checkout: 'ไม่มีสแกนออก',
     holiday: 'วันหยุด', holiday_work: 'ทำงานวันหยุด', working: 'กำลังทำงาน', pending: 'ยังไม่สแกน', future: '', none: '',
   };
   const APPEAL_TH = { pending: 'รอพิจารณา', approved: 'อนุมัติ', rejected: 'ไม่อนุมัติ' };
@@ -1180,7 +1180,7 @@
       <div class="stats">
         <div class="card stat"><div class="k">วันทำงาน</div><div class="v">${s.work}</div></div>
         <div class="card stat in"><div class="k">ปกติ (เขียว)</div><div class="v">${s.ok}</div></div>
-        <div class="card stat flagged"><div class="k">ไม่ถูกต้อง (แดง)</div><div class="v">${s.red}</div></div>
+        <div class="card stat flagged"><div class="k">ต้องตรวจสอบ (แดง)</div><div class="v">${s.red}</div></div>
         <div class="card stat out"><div class="k">มาสาย</div><div class="v">${s.late}</div></div>
         <div class="card stat ot"><div class="k">OT คำนวณ (ชม.)</div><div class="v">${num(s.ot['1.5'] + s.ot['2'] + s.ot['3'])}</div></div>
       </div>
@@ -1196,7 +1196,7 @@
             ${d.appeal ? `<span class="ap ${d.appeal.status}">คำร้อง${APPEAL_TH[d.appeal.status]}</span>` : ''}
           </button>`).join('')}</div>
         <div class="cal-legend">
-          <span><i class="c-green"></i>ปกติ</span><span><i class="c-red"></i>ไม่ถูกต้อง / ลืมสแกน / สาย / ออกก่อน</span><span><i class="c-gray"></i>วันหยุด</span>
+          <span><i class="c-green"></i>ปกติ</span><span><i class="c-red"></i>ต้องตรวจสอบ (ไม่มีการสแกน / สาย / ออกก่อน)</span><span><i class="c-gray"></i>วันหยุด</span>
           <span><i class="c-purple"></i>ทำงานวันหยุด</span><span><i class="c-excused"></i>อนุมัติคำร้อง</span><span><i class="c-blue"></i>วันนี้ / กำลังทำงาน</span>
         </div>
       </div>`;

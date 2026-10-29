@@ -1274,7 +1274,7 @@
 
   // ---------- ปฏิทินการทำงาน (ดูสีรายวัน ไม่แสดงรูป) ----------
   const DAY_STATUS = {
-    ok: 'ปกติ', problem: 'ไม่ถูกต้อง', absent: 'ไม่มีการสแกนในวันทำงาน', no_checkin: 'ไม่มีรูปสแกนเข้างาน', no_checkout: 'ไม่มีรูปสแกนออกงาน',
+    ok: 'ปกติ', problem: 'ต้องตรวจสอบ', absent: 'ไม่มีการสแกนในวันทำงาน', no_checkin: 'ไม่มีรูปสแกนเข้างาน', no_checkout: 'ไม่มีรูปสแกนออกงาน',
     holiday: 'วันหยุด', holiday_work: 'ทำงานวันหยุด (OT)', working: 'กำลังทำงาน', pending: 'ยังไม่สแกนวันนี้', future: 'ยังไม่ถึง', none: '–',
   };
   const APPEAL_TH = { pending: 'คำร้องรอพิจารณา', approved: 'คำร้องได้รับอนุมัติ', rejected: 'คำร้องไม่ได้รับอนุมัติ' };
@@ -1300,7 +1300,9 @@
       calData = await api(`/api/me/calendar?month=${calMonth}`);
       if (current !== 'cal') return;
       // ย้อนดูได้ถึงเดือนที่เริ่มใช้ระบบ
-      document.getElementById('prevM').disabled = !!calData.start_date && calMonth <= calData.start_date.slice(0, 7);
+      // ย้อนดูได้ถึงเดือนที่เริ่มใช้ระบบ หรือ 60 วันย้อนหลัง (เผื่อวันที่ขอลืมสแกนก่อนสมัคร)
+      const back60 = new Date(Date.parse(`${todayTHStr()}T12:00:00Z`) - 60 * 86400000).toISOString().slice(0, 7);
+      document.getElementById('prevM').disabled = !!calData.start_date && calMonth <= [calData.start_date.slice(0, 7), back60].sort()[0];
       drawCalendar();
     } catch (err) {
       const b = document.getElementById('calBody');
@@ -1320,7 +1322,7 @@
       <div class="cal-stats">
         <div><b>${s.work}</b><small>วันทำงาน</small></div>
         <div class="c-green"><b>${s.ok}</b><small>ปกติ</small></div>
-        <div class="c-red"><b>${s.red}</b><small>ไม่ถูกต้อง</small></div>
+        <div class="c-red"><b>${s.red}</b><small>ต้องตรวจสอบ</small></div>
         <div class="c-purple"><b>${otTotal}</b><small>ชม. OT</small></div>
       </div>
       <div class="card cal-card">
@@ -1331,7 +1333,7 @@
             <span class="n">${Number(d.date.slice(8))}</span><span class="m">${mark(d)}</span></button>`).join('')}
         </div>
         <div class="cal-legend">
-          <span><i class="c-green"></i>ปกติ</span><span><i class="c-red"></i>ไม่ถูกต้อง/ลืมสแกน/สาย</span>
+          <span><i class="c-green"></i>ปกติ</span><span><i class="c-red"></i>ต้องตรวจสอบ (ไม่มีการสแกน/สาย/ออกก่อน)</span>
           <span><i class="c-gray"></i>วันหยุด</span><span><i class="c-purple"></i>ทำงานวันหยุด</span>
           <span><i class="c-excused"></i>อนุมัติคำร้อง</span><span><i class="c-blue"></i>วันนี้/กำลังทำงาน</span>
         </div>
@@ -1459,7 +1461,8 @@
     view.innerHTML = `
       <button class="back" id="frBack">‹ กลับ</button>
       <h1 class="screen-title"><span class="dot"></span>ลืมสแกน · ขอบันทึกเวลา</h1>
-      <p class="hint fr-hint">แตะวันที่ลืมสแกนเข้า/ออกงาน · วัน<b class="bad">สีแดง</b>คือวันที่ระบบพบว่าสแกนไม่ครบ · วันที่สแกนครบแล้วเลือกไม่ได้</p>
+      <p class="hint fr-hint">แตะวันที่ทำงานจริงแต่ลืมสแกน · ขอย้อนหลังได้ 60 วัน (รวมวันก่อนสมัครใช้ระบบ) · วันที่สแกนครบแล้วเลือกไม่ได้<br>
+        ถ้าวันนั้น<b>หยุดงานตามคำสั่งหัวหน้างาน หรือลา</b> ไม่ต้องขอลืมสแกน ให้กดวันนั้นในเมนูปฏิทิน แล้วยื่นคำร้องแทน</p>
       <div class="cal-head">
         <button class="btn ghost cal-nav" id="frPrevM" aria-label="เดือนก่อน">‹</button>
         <h2 class="fr-month">${esc(monthTH(forgotMonth))}</h2>
@@ -1483,13 +1486,15 @@
     if (!body) return;
     const todayStr = todayTHStr();
     document.getElementById('frNextM').disabled = forgotMonth >= todayStr.slice(0, 7);
-    document.getElementById('frPrevM').disabled = !!cal.start_date && forgotMonth <= cal.start_date.slice(0, 7);
+    // ขอย้อนหลังได้ 60 วัน (รวมวันก่อนสมัครใช้ระบบ)
+    const oldest = new Date(Date.parse(`${todayStr}T12:00:00Z`) - 60 * 86400000).toISOString().slice(0, 10);
+    document.getElementById('frPrevM').disabled = forgotMonth <= oldest.slice(0, 7);
     const reqBy = {};
     mine.items.forEach((r) => { if (!reqBy[r.work_date] || r.status !== 'rejected') reqBy[r.work_date] = reqBy[r.work_date] && reqBy[r.work_date].status !== 'rejected' ? reqBy[r.work_date] : r; });
     const lead = new Date(`${cal.days[0].date}T12:00:00Z`).getUTCDay();
     const stateOf = (d) => {
       const r = reqBy[d.date];
-      if (d.date > todayStr || (cal.start_date && d.date < cal.start_date)) return 'off';
+      if (d.date > todayStr || d.date < oldest) return 'off';
       if (r && r.status === 'pending') return 'pending';
       if (r && r.status === 'approved') return 'approved';
       if (d.checkin && d.checkout) return 'done';
@@ -1505,7 +1510,7 @@
             <span class="n">${Number(d.date.slice(8))}</span><span class="m">${MARK[st]}</span></button>`; }).join('')}
         </div>
         <div class="cal-legend">
-          <span><i class="fr-need"></i>สแกนไม่ครบ (ควรขอ)</span><span><i class="fr-open"></i>ขอได้</span>
+          <span><i class="fr-need"></i>สแกนไม่ครบ</span><span><i class="fr-open"></i>ขอได้</span>
           <span><i class="fr-pending"></i>รอตรวจสอบ</span><span><i class="fr-done"></i>สแกนครบ/อนุมัติแล้ว</span>
         </div>
       </div>
@@ -1645,7 +1650,7 @@
         ${d.worked_hours != null ? `<dt>เวลาทำงาน</dt><dd>${d.worked_hours} ชม.</dd>` : ''}
       </dl>
       ${d.manual ? '<div class="fr-manual">📝 เวลาของวันนี้บันทึกจากคำขอลืมสแกนที่ผู้ดูแลอนุมัติแล้ว</div>' : ''}
-      ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul></div>` : ''}
+      ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul><small>สีแดงไม่ได้แปลว่าทำผิด · ทำงานแต่ลืมสแกน → กด "ลืมสแกน" · หยุดตามคำสั่งหัวหน้างาน/ลา/มาสายมีเหตุ → ยื่นคำร้องด้านล่าง</small></div>` : ''}
       ${otRows ? `<div class="ot-box"><b>เวลาทำงานเกิน (คิดเป็น OT ได้)</b><ul>${otRows}</ul><small>ถ้าทำ OT จริง ต้องกดขอ OT เอง</small><button class="btn primary sm" id="askOt" style="margin-top:8px">ขอ OT ของวันนี้</button></div>` : ''}
       ${!(d.checkin && d.checkout) && d.date <= todayTHStr() ? `<button class="btn primary big fr-open-btn" id="frFromDay">📝 ลืมสแกน? ขอบันทึกเวลาวันนี้</button>` : ''}
       ${d.appeal ? `<div class="appeal-box"><b>คำร้องของคุณ:</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>

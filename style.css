@@ -423,3 +423,4 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 .fr-manual { margin: 10px 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
 .cal-day .m { white-space: nowrap; }
 @media (prefers-color-scheme: dark) { .fr-nowarn { background: #3a2a10; color: #ffd59a; } }
+.issue-box small { display: block; margin-top: 6px; color: var(--text); opacity: .8; font-size: 13px; line-height: 1.5; }
