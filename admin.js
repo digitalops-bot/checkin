@@ -22,6 +22,7 @@
     refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
     pin: '<path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>',
     note: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
 
@@ -196,6 +197,7 @@
     { id: 'cal', label: 'ปฏิทินพนักงาน', icon: 'cal' },
     { id: 'appeal', label: 'คำร้อง', icon: 'flag' },
     { id: 'scanreq', label: 'ลืมสแกน', icon: 'note' },
+    { id: 'problem', label: 'แจ้งปัญหา', icon: 'help' },
     { id: 'ot', label: 'คำขอ OT', icon: 'ot' },
     { id: 'sum', label: 'สรุปรายคน', icon: 'sum' },
     { id: 'emp', label: 'พนักงาน', icon: 'users' },
@@ -212,7 +214,7 @@
       <div class="shell">
         <aside class="side">
           <div class="brand"><img src="icon.svg" alt=""><div><b>ระบบลงเวลา</b><small>ผู้ดูแล · พนักงานนอก</small></div></div>
-          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'scanreq' ? '<span class="count" id="srCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
+          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'scanreq' ? '<span class="count" id="srCount" hidden></span>' : ''}${p.id === 'problem' ? '<span class="count" id="pbCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
           <div class="spacer"></div>
           <div class="who-admin" title="${esc(ME.username)}">${ME.role === 'owner' ? '👑' : '👤'} <span>${esc(ME.name)}</span></div>
           <button class="nav-btn" id="reloadBtn">${icon('refresh')}<span>รีเฟรช</span></button>
@@ -234,14 +236,14 @@
   }
   const setPending = (n) => setCount('pendingCount', n);
   // อัปเดตตัวเลขคำขอ OT / คำร้องที่รอพิจารณาบนเมนู
-  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); setCount('regCount', (d.registrations || 0) + (d.code_requests || 0)); setCount('srCount', d.scan_requests || 0); }).catch(() => {});
+  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); setCount('regCount', (d.registrations || 0) + (d.code_requests || 0)); setCount('srCount', d.scan_requests || 0); setCount('pbCount', d.problems || 0); }).catch(() => {});
 
   function go(id) {
     page = id;
     clearInterval(dashTimer);
     root.querySelectorAll('[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === id));
     history.replaceState(null, '', '#' + id);
-    ({ dash: pageDash, att: pageAtt, map: pageMap, scanreq: pageScanReq, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
+    ({ dash: pageDash, att: pageAtt, map: pageMap, scanreq: pageScanReq, problem: pageProblem, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
     if (id !== 'dash') refreshCounts();
   }
   const content = () => document.getElementById('content');
@@ -459,6 +461,7 @@
         setCount('appealCount', d.appeals);
         setCount('regCount', (d.registrations || 0) + (d.code_requests || 0));
         setCount('srCount', d.scan_requests || 0);
+        setCount('pbCount', d.problems || 0);
         const checkedIn = d.pairs.filter((p) => p.checkin).length;
         const noOut = d.pairs.filter((p) => p.status === 'no_checkout').length;
         const done = d.pairs.filter((p) => p.status === 'complete').length;
@@ -473,12 +476,14 @@
             <button class="card stat map-stat" id="openMap" type="button"><div class="k">${icon('pin')}แผนที่การลงเวลา</div><div class="v">${d.pairs.reduce((n, p) => n + p.records.filter((r) => r.lat !== null && r.lat !== '' && r.lat !== undefined).length, 0)}</div><div class="sub">จุดสแกนวันนี้ · กดเพื่อเปิดแผนที่ →</div></button>
             <div class="card stat out"><div class="k">คำร้องรอพิจารณา</div><div class="v">${d.appeals || 0}</div></div>
             <button class="card stat map-stat" id="openSr" type="button"><div class="k">${icon('note')}ลืมสแกน รอตรวจ</div><div class="v">${d.scan_requests || 0}</div><div class="sub">คำขอบันทึกเวลาย้อนหลัง · กดเพื่อตรวจ →</div></button>
+            <button class="card stat map-stat${d.problems ? ' pb-alert' : ''}" id="openPb" type="button"><div class="k">${icon('help')}แจ้งปัญหา รอจัดการ</div><div class="v">${d.problems || 0}</div><div class="sub">ปัญหาการใช้งานจากพนักงาน · กดเพื่อจัดการ →</div></button>
           </div>
           <h2 class="section-title">การลงเวลาวันนี้</h2>
           <div id="tbl">${attTable(d.pairs, { showDate: false })}</div>`;
         document.getElementById('rf').onclick = load;
         document.getElementById('openMap').onclick = () => { mapState.date = d.today; go('map'); };
         document.getElementById('openSr').onclick = () => go('scanreq');
+        document.getElementById('openPb').onclick = () => go('problem');
         bindAttTable(c, load);
       } catch (err) { toast(err.message, true); }
     };
@@ -711,6 +716,113 @@
         await api(`/api/admin/scan-requests/${r.id}`, { method: 'PATCH', body: { status: 'rejected', review_note: note } });
         closeModal();
         toast('ไม่อนุมัติแล้ว และแจ้งเหตุผลให้พนักงานแล้ว');
+        reload();
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
+    };
+  }
+
+  // ---------- แจ้งปัญหาการใช้งาน: ผู้ดูแลทุกคนรับเรื่อง/ปิดเรื่องได้ · ลบได้เฉพาะเจ้าของระบบ ----------
+  const PB_TH = { open: 'รอรับเรื่อง', in_progress: 'กำลังแก้ไข', resolved: 'แก้ไขแล้ว' };
+  const PB_SRC = { login: 'หน้าเข้าสู่ระบบ', register: 'หน้าสมัคร', pending: 'หน้ารออนุมัติ', app: 'ในแอป' };
+  let pbView = 'active';
+  async function showPdf(file) {
+    openModal('<div class="empty">กำลังโหลดไฟล์…</div>');
+    try {
+      const blob = await Backend.photo(file);
+      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      modalBody.innerHTML = `<h2 style="margin:0 40px 10px 0">ไฟล์ PDF ที่แนบมา</h2><iframe class="pb-pdf-frame" src="${url}" title="ไฟล์ PDF"></iframe>
+        <div class="row" style="margin-top:10px"><a class="btn ghost" href="${url}" download="แจ้งปัญหา.pdf">${icon('dl')}ดาวน์โหลด</a></div>`;
+    } catch (err) { modalBody.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  }
+  const pbWho = (r) => (r.employee_id
+    ? nameCell(r.employee_id, r.name, r.emp_code, '<div class="sub ok-txt">✓ เข้าสู่ระบบแล้ว (ระบบยืนยันตัวตนให้)</div>')
+    : `<div class="name-cell">${avTag('', r.name)}<div><b>${esc(r.name)}</b> <span class="sub">รหัส ${esc(r.emp_code)}</span>
+        <div class="pb-anon">⚠ ไม่ได้เข้าสู่ระบบ · แจ้งจาก${esc(PB_SRC[r.source] || r.source)} — ${r.match_name ? `รหัสนี้ตรงกับพนักงาน <b>${esc(r.match_name)}</b>` : 'ไม่พบรหัสนี้ในระบบ (อาจยังไม่ได้สมัคร หรือพิมพ์รหัสผิด)'}</div>
+        ${r.contact ? `<div class="sub">📞 ติดต่อกลับ: <b>${esc(r.contact)}</b></div>` : ''}</div></div>`);
+  const pbCard = (r) => `
+    <div class="card pb-a ${r.status}">
+      <div class="pb-a-top"><span class="pb-st ${r.status}">${PB_TH[r.status] || esc(r.status)}</span><span class="badge">${esc(r.category)}</span><span class="sub">#${esc(r.id)} · แจ้งเมื่อ ${esc(thDateTime(r.created_at))}</span></div>
+      <h3 class="pb-a-title">${esc(r.title)}</h3>
+      <div class="pb-a-detail">${esc(r.detail)}</div>
+      ${r.files.length ? `<div class="pb-a-files">${r.files.map((f) => (f.t === 'pdf'
+    ? `<button type="button" class="pb-a-pdf" data-pbpdf="${esc(f.f)}" title="เปิดไฟล์ PDF">📄<span>PDF</span></button>`
+    : `<canvas class="pb-a-img" data-photo="${esc(f.f)}" data-open="${esc(f.f)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>`)).join('')}</div>` : ''}
+      <div class="pb-a-who">${pbWho(r)}${r.device ? `<div class="sub pb-a-dev">📱 ${esc(r.device)}</div>` : ''}</div>
+      ${r.status === 'in_progress' ? `<div class="pb-reply">🛠️ <b>${esc(r.taken_by)}</b> รับเรื่องเมื่อ ${esc(thDateTime(r.taken_at))}</div>` : ''}
+      ${r.status === 'resolved' ? `<div class="pb-reply ok">✅ แก้ไขแล้วโดย <b>${esc(r.resolved_by)}</b> เมื่อ ${esc(thDateTime(r.resolved_at))}${r.resolve_note ? `<p>${esc(r.resolve_note)}</p>` : ''}<div class="sub">ระบบจะลบเรื่องนี้อัตโนมัติ ${esc(thDateTime(r.expires_at))}</div></div>` : ''}
+      <div class="pb-a-act">
+        ${r.status === 'open' ? `<button class="btn primary sm" data-pbtake="${r.id}">รับเรื่อง</button>` : ''}
+        ${r.status !== 'resolved' ? `<button class="btn ok sm" data-pbdone="${r.id}">✓ แก้ไขแล้ว</button>` : ''}
+        ${ME.role === 'owner' ? `<button class="btn danger sm" data-pbdel="${r.id}">ลบ</button>` : ''}
+      </div>
+    </div>`;
+  function pageProblem() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>แจ้งปัญหา</h1><p>ปัญหาการใช้งานที่พนักงานแจ้งเข้ามา (ทั้งจากหน้าเข้าสู่ระบบ/สมัคร และในแอป) · กด "รับเรื่อง" แล้ว "แก้ไขแล้ว" พร้อมข้อความถึงผู้แจ้ง · เรื่องที่แก้ไขแล้วระบบลบให้อัตโนมัติหลัง 7 วัน${ME.role === 'owner' ? ' · เจ้าของระบบลบเองได้ทันที' : ''}</p></div>
+        <button class="btn ghost" id="pbRf">${icon('refresh')}รีเฟรช</button></div>
+      <div class="card pb-bar"><div class="seg" id="pbSeg">${[['active', 'ยังไม่เสร็จ'], ['open', 'รอรับเรื่อง'], ['in_progress', 'กำลังแก้ไข'], ['resolved', 'แก้ไขแล้ว'], ['all', 'ทั้งหมด']].map(([v, t]) => `<button type="button" data-v="${v}">${t}</button>`).join('')}</div></div>
+      <div id="pbList"><div class="empty">กำลังโหลด…</div></div>`;
+    let items = [];
+    const seg = c.querySelector('#pbSeg');
+    const mark = () => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === pbView));
+    let seq = 0;
+    const load = async () => {
+      mark();
+      const my = ++seq; // กดเปลี่ยนแท็บเร็วๆ: แสดงเฉพาะผลของครั้งล่าสุด
+      try {
+        const d = await api(`/api/admin/problems${PB_TH[pbView] ? `?status=${pbView}` : ''}`);
+        if (my !== seq) return;
+        items = pbView === 'active' ? d.items.filter((x) => x.status !== 'resolved') : d.items;
+        const box = document.getElementById('pbList');
+        if (!box) return;
+        refreshCounts();
+        box.innerHTML = items.length ? `<div class="pb-grid">${items.map(pbCard).join('')}</div>` : `<div class="card empty">${pbView === 'active' ? '🎉 ไม่มีปัญหาที่รอจัดการ' : 'ไม่มีรายการ'}</div>`;
+        hydratePhotos(box);
+        box.querySelectorAll('[data-open]').forEach((el) => (el.onclick = () => showPhoto(el.dataset.open)));
+        box.querySelectorAll('[data-pbpdf]').forEach((b) => (b.onclick = () => showPdf(b.dataset.pbpdf)));
+        box.querySelectorAll('[data-pbtake]').forEach((b) => (b.onclick = async () => {
+          b.disabled = true;
+          try {
+            const r = await api(`/api/admin/problems/${b.dataset.pbtake}`, { method: 'PATCH', body: { status: 'in_progress' } });
+            toast(r.notified ? 'รับเรื่องแล้ว และแจ้งผู้แจ้งในแอปแล้ว' : 'รับเรื่องแล้ว (ผู้แจ้งไม่ได้เข้าสู่ระบบ ถ้ามีเบอร์ติดต่อกลับได้)');
+            load();
+          } catch (err) { toast(err.message, true); b.disabled = false; load(); }
+        }));
+        box.querySelectorAll('[data-pbdone]').forEach((b) => (b.onclick = () => pbResolve(items.find((x) => String(x.id) === b.dataset.pbdone), load)));
+        box.querySelectorAll('[data-pbdel]').forEach((b) => (b.onclick = async () => {
+          const r = items.find((x) => String(x.id) === b.dataset.pbdel);
+          if (!confirm(`ลบเรื่อง #${r.id} "${r.title}" และไฟล์แนบ?${r.status !== 'resolved' ? '\n\n⚠ เรื่องนี้ยังไม่ได้แก้ไข' : ''}\nลบแล้วกู้คืนไม่ได้`)) return;
+          b.disabled = true;
+          try { await api(`/api/admin/problems/${r.id}`, { method: 'DELETE' }); toast('ลบแล้ว'); load(); }
+          catch (err) { toast(err.message, true); b.disabled = false; }
+        }));
+      } catch (err) { toast(err.message, true); }
+    };
+    seg.querySelectorAll('button').forEach((b) => (b.onclick = () => { pbView = b.dataset.v; load(); }));
+    document.getElementById('pbRf').onclick = load;
+    load();
+  }
+  function pbResolve(r, reload) {
+    const CHIPS = ['แก้ไขเรียบร้อยแล้ว กรุณากดปุ่ม ⟳ มุมขวาบน แล้วลองใช้งานอีกครั้ง', 'แก้ไขข้อมูลบัญชีให้แล้ว ลองเข้าสู่ระบบใหม่ได้เลย', 'อนุมัติการสมัครให้แล้ว เข้าสู่ระบบได้เลย', 'โทรติดต่อและช่วยแก้ไขให้แล้ว', 'ตรวจสอบแล้วไม่พบปัญหาจากระบบ ถ้ายังเป็นอยู่ กรุณาแจ้งใหม่พร้อมแคปหน้าจอ'];
+    openModal(`<h2 style="margin:0 40px 6px 0">ปิดเรื่อง: แก้ไขแล้ว</h2>
+      <div class="del-info"><b>#${esc(r.id)} ${esc(r.title)}</b><br>ผู้แจ้ง: ${esc(r.name)} (${esc(r.emp_code)})${r.contact ? ` · 📞 ${esc(r.contact)}` : ''}</div>
+      <form id="pbf" class="del-form">
+        <div class="reason-chips">${CHIPS.map((x) => `<button type="button" class="btn ghost sm" data-r="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        <label class="field"><span>ข้อความถึงผู้แจ้ง <small>(ไม่บังคับ)</small></span><textarea name="note" rows="3" maxlength="500" placeholder="บอกผู้แจ้งว่าแก้อะไรไป / ต้องทำอะไรต่อ"></textarea></label>
+        <p class="sub">${r.employee_id ? '🔔 ผู้แจ้งจะได้รับข้อความนี้ที่กระดิ่งแจ้งเตือนในแอป' : `⚠ ผู้แจ้งไม่ได้เข้าสู่ระบบ ระบบส่งแจ้งเตือนในแอปไม่ได้ (บันทึกไว้เป็นประวัติ)${r.contact ? ` — กรุณาติดต่อกลับทาง <b>${esc(r.contact)}</b>` : ''}`} · เรื่องจะถูกลบอัตโนมัติหลัง 7 วัน</p>
+        <div class="row"><button type="submit" class="btn ok" id="pbOk">ยืนยัน แก้ไขแล้ว</button><button type="button" class="btn ghost" id="pbCancel">ยกเลิก</button></div>
+      </form>`);
+    const f = document.getElementById('pbf');
+    f.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { f.note.value = b.dataset.r; f.note.focus(); }));
+    document.getElementById('pbCancel').onclick = closeModal;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('pbOk');
+      btn.disabled = true;
+      try {
+        const res = await api(`/api/admin/problems/${r.id}`, { method: 'PATCH', body: { status: 'resolved', note: f.note.value.trim() } });
+        closeModal();
+        toast(res.notified ? 'ปิดเรื่องแล้ว และแจ้งผู้แจ้งในแอปแล้ว' : 'ปิดเรื่องแล้ว');
         reload();
       } catch (err) { toast(err.message, true); btn.disabled = false; }
     };

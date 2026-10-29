@@ -21,6 +21,14 @@
     }
   } catch { /* เบราว์เซอร์ไม่ให้แก้ */ }
   const hasCameraApi = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const deviceOs = () => (IS_IOS ? `iPhone/iPad iOS ${(/OS (\d+)_(\d+)/.exec(UA) || []).slice(1).join('.') || '?'}` : (/Android ([\d.]+)/.exec(UA) || [])[1] ? `Android ${(/Android ([\d.]+)/.exec(UA) || [])[1]}` : 'คอมพิวเตอร์/อื่นๆ');
+  const deviceBrowser = () => (IN_APP ? `ในแอป ${IN_APP}` : /CriOS|Chrome\//.test(UA) && !/Edg|SamsungBrowser|OPR/.test(UA) ? 'Chrome' : /SamsungBrowser/.test(UA) ? 'Samsung Internet' : /FxiOS|Firefox/.test(UA) ? 'Firefox' : /EdgiOS|Edg\//.test(UA) ? 'Edge' : /Safari/.test(UA) ? 'Safari' : 'อื่นๆ');
+  const deviceSummary = () => {
+    const model = (/Android [\d.]+; ([^;)]+?)(?: Build|\))/.exec(UA) || [])[1] || '';
+    const ver = (/(?:CriOS|Chrome|FxiOS|Firefox|EdgiOS|Edg|SamsungBrowser|Version)\/(\d+)/.exec(UA) || [])[1] || '';
+    const pwa = window.matchMedia?.('(display-mode: standalone)').matches ? ' · แอปบนหน้าจอหลัก' : '';
+    return `${deviceOs()}${model && model !== 'K' ? ` (${model.trim()})` : ''} · ${deviceBrowser()}${ver ? ` ${ver}` : ''}${pwa} · จอ ${screen.width}×${screen.height}`;
+  };
 
   const view = document.getElementById('view');
   const toastEl = document.getElementById('toast');
@@ -181,10 +189,12 @@
         <button class="btn primary big" type="submit" id="submit">เข้าสู่ระบบ</button>
         <button type="button" class="linkbtn" id="forgot">ลืมรหัสผ่าน?</button>
       </form>
-      <div class="auth-alt"><span class="muted">ยังไม่มีบัญชี?</span><button class="btn ghost big" id="reg">ลงทะเบียนครั้งแรก</button></div>`;
+      <div class="auth-alt"><span class="muted">ยังไม่มีบัญชี?</span><button class="btn ghost big" id="reg">ลงทะเบียนครั้งแรก</button></div>
+      ${helpLink('pbLogin', 'เข้าสู่ระบบไม่ได้ / พบปัญหา? แจ้งผู้ดูแล')}`;
     const f = document.getElementById('f');
     bindInputs(f);
     document.getElementById('reg').onclick = renderRegister;
+    document.getElementById('pbLogin').onclick = () => openProblemForm('login', { emp_code: f.emp_code.value });
     document.getElementById('forgot').onclick = () => renderForgot(f.emp_code.value);
     document.getElementById('forgot2').onclick = () => renderForgot(f.emp_code.value);
 
@@ -248,10 +258,14 @@
         ${pwField('password2', 'ยืนยันรหัสผ่าน', 'new-password')}
         <p class="hint">จดรหัสพนักงานและเบอร์โทรไว้ ถ้าลืมรหัสผ่านจะใช้ 2 อย่างนี้ตั้งรหัสใหม่ได้</p>
         <button class="btn primary big" type="submit" id="submit">ลงทะเบียน</button>
-      </form>`;
+      </form>
+      ${helpLink('pbReg', 'สมัครไม่ได้ / พบปัญหา? แจ้งผู้ดูแล')}`;
     const f = document.getElementById('f');
     bindInputs(f);
     document.getElementById('back').onclick = renderLogin;
+    document.getElementById('pbReg').onclick = () => openProblemForm('register', {
+      emp_code: f.emp_code.value, name: `${f.first_name.value} ${f.last_name.value}`.trim(), contact: f.phone.value, category: 'สมัครสมาชิก/ลงทะเบียน',
+    });
     let avatarData = '';
     document.getElementById('avPick').onclick = async () => {
       const a = await captureAvatar();
@@ -309,8 +323,10 @@
         </dl>
         <p class="hint">เมื่อผู้ดูแลอนุมัติแล้ว ให้เข้าสู่ระบบด้วย <b>รหัสพนักงาน</b> และ <b>รหัสผ่าน</b> ที่ตั้งไว้ · ไม่ต้องสมัครซ้ำ</p>
         <button class="btn primary big" id="toLogin">ไปหน้าเข้าสู่ระบบ</button>
-      </div>`;
+      </div>
+      ${helpLink('pbPend', 'รอนานเกินไป / พบปัญหา? แจ้งผู้ดูแล')}`;
     document.getElementById('toLogin').onclick = renderLogin;
+    document.getElementById('pbPend').onclick = () => openProblemForm('pending', { emp_code: emp.emp_code, name: emp.name, contact: emp.phone, category: 'สมัครสมาชิก/ลงทะเบียน' });
   }
 
   // ---------- Forgot password ----------
@@ -326,10 +342,12 @@
         <label class="field"><span>เบอร์โทรศัพท์</span>
           <input name="phone" type="tel" inputmode="numeric" maxlength="10" placeholder="0812345678" required></label>
         <button class="btn primary big" type="submit" id="submit">ยืนยัน</button>
-      </form>`;
+      </form>
+      ${helpLink('pbForgotPw', 'ยืนยันตัวตนไม่ผ่าน / จำเบอร์ไม่ได้? แจ้งผู้ดูแล')}`;
     const f = document.getElementById('f');
     bindInputs(f);
     document.getElementById('back').onclick = renderLogin;
+    document.getElementById('pbForgotPw').onclick = () => openProblemForm('login', { emp_code: f.emp_code.value, category: 'เข้าสู่ระบบ/รหัสผ่าน' });
     f.onsubmit = async (e) => {
       e.preventDefault();
       const ok = setErr(f.emp_code, RULES.emp_code(f.emp_code.value)) & setErr(f.phone, RULES.phone(f.phone.value));
@@ -484,8 +502,10 @@
         <button class="btn ghost" data-close>ปิด</button>
       </div>
       <p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>
-      ${token ? '<button class="btn ghost big" id="camToForgot">📝 สแกนไม่ได้ตอนนี้? ขอบันทึกเวลา (แนบรูปใบลงเวลา)</button>' : ''}`);
-    el.querySelector('#camToForgot')?.addEventListener('click', () => { closeSheet(); renderForgot(); });
+      ${token ? '<button class="btn ghost big" id="camToForgot">📝 สแกนไม่ได้ตอนนี้? ขอบันทึกเวลา (แนบรูปใบลงเวลา)</button>' : ''}
+      <button class="btn ghost big" id="camToProblem" style="margin-top:8px">🆘 ทำตามแล้วยังไม่ได้? แจ้งผู้ดูแล</button>`);
+    el.querySelector('#camToProblem').onclick = () => openProblemForm(token ? 'app' : 'register', { category: 'กล้อง/สแกนใบหน้า' });
+    el.querySelector('#camToForgot')?.addEventListener('click', () => { closeSheet(); renderForgotScan(); });
     el.querySelector('#copyAppUrl').onclick = async () => {
       try { await navigator.clipboard.writeText(appUrl()); toast('คัดลอกลิงก์แล้ว นำไปวางใน ' + (IS_IOS ? 'Safari' : 'Chrome')); }
       catch { prompt('คัดลอกลิงก์นี้ไปเปิดใน ' + (IS_IOS ? 'Safari' : 'Chrome'), appUrl()); }
@@ -769,9 +789,11 @@
           <button type="button" class="btn ghost fr-entry" id="apEntryScan">🏳️ ยื่นคำร้อง<small>หยุดตามคำสั่ง / ลา / มาสาย</small></button>
         </div>
         <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
-      </div>`;
+      </div>
+      ${helpLink('pbScan', 'ใช้งานไม่ได้ / พบปัญหา? แจ้งผู้ดูแล')}`;
+    document.getElementById('pbScan').onclick = () => openProblemForm('app');
 
-    document.getElementById('frEntryScan').onclick = () => renderForgot();
+    document.getElementById('frEntryScan').onclick = () => renderForgotScan();
     document.getElementById('apEntryScan').onclick = () => renderAppeals();
     const lc = document.getElementById('lc');
     const ld = document.getElementById('ld');
@@ -951,10 +973,8 @@
       const b = list.lastElementChild.querySelector('b');
       return (ok, text) => { b.className = ok === true ? 'ok' : ok === false ? 'bad' : 'warn'; b.textContent = text; };
     };
-    const os = IS_IOS ? `iPhone/iPad iOS ${(/OS (\d+)_(\d+)/.exec(UA) || []).slice(1).join('.') || '?'}` : (/Android ([\d.]+)/.exec(UA) || [])[1] ? `Android ${(/Android ([\d.]+)/.exec(UA) || [])[1]}` : 'คอมพิวเตอร์/อื่นๆ';
-    const browser = IN_APP ? `ในแอป ${IN_APP}` : /CriOS|Chrome\//.test(UA) && !/Edg|SamsungBrowser|OPR/.test(UA) ? 'Chrome' : /SamsungBrowser/.test(UA) ? 'Samsung Internet' : /FxiOS|Firefox/.test(UA) ? 'Firefox' : /EdgiOS|Edg\//.test(UA) ? 'Edge' : /Safari/.test(UA) ? 'Safari' : 'อื่นๆ';
-    row('อุปกรณ์')(null, os);
-    row('เบราว์เซอร์')(IN_APP ? false : null, browser + (window.matchMedia?.('(display-mode: standalone)').matches ? ' (แอปบนหน้าจอหลัก)' : ''));
+    row('อุปกรณ์')(null, deviceOs());
+    row('เบราว์เซอร์')(IN_APP ? false : null, deviceBrowser() + (window.matchMedia?.('(display-mode: standalone)').matches ? ' (แอปบนหน้าจอหลัก)' : ''));
     row('การเชื่อมต่อปลอดภัย (https)')(window.isSecureContext, window.isSecureContext ? 'ผ่าน' : 'ไม่ผ่าน');
     const cam = row('กล้อง');
     if (!hasCameraApi()) cam(false, IN_APP ? 'ใช้ไม่ได้ในแอปนี้ → เปิดใน Safari/Chrome' : 'เบราว์เซอร์นี้ใช้กล้องไม่ได้ → เปิดใน Safari/Chrome');
@@ -978,7 +998,8 @@
         (e) => { gps(false, e.code === 1 ? 'ไม่ได้อนุญาต → เปิดสิทธิ์ตำแหน่งในการตั้งค่า' : 'หาตำแหน่งไม่ได้ → ออกไปที่โล่งแล้วลองใหม่'); res(); },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }));
     }
-    list.insertAdjacentHTML('beforeend', '<p class="hint">ถ้ามีข้อใดไม่ผ่าน ให้ถ่ายภาพหน้าจอนี้ส่งให้ผู้ดูแล</p>');
+    list.insertAdjacentHTML('beforeend', '<p class="hint">ถ้ามีข้อใดไม่ผ่าน ให้ถ่ายภาพหน้าจอนี้ แล้วกด "แจ้งปัญหา" แนบรูปส่งให้ผู้ดูแล</p><button class="btn ghost big" id="devToProblem">🆘 แจ้งปัญหาให้ผู้ดูแล</button>');
+    list.querySelector('#devToProblem').onclick = () => openProblemForm('app');
   }
 
   // สแกนไม่สำเร็จ: บอกวิธีแก้ และทางเลือก "ลืมสแกน" (แนบรูปใบลงเวลา)
@@ -993,8 +1014,10 @@
         <li>ถ้ายังไม่ได้ กดปุ่ม ⟳ มุมขวาบน แล้วลองใหม่</li>
       </ol>
       <button class="btn primary big" data-close>ลองสแกนใหม่</button>
-      <button class="btn ghost big" id="helpToForgot" style="margin-top:8px">📝 สแกนไม่ได้จริงๆ? ขอบันทึกเวลา (ลืมสแกน)</button>`);
-    el.querySelector('#helpToForgot').onclick = () => { closeSheet(); renderForgot(); };
+      <button class="btn ghost big" id="helpToForgot" style="margin-top:8px">📝 สแกนไม่ได้จริงๆ? ขอบันทึกเวลา (ลืมสแกน)</button>
+      <button class="btn ghost big" id="helpToProblem" style="margin-top:8px">🆘 แจ้งปัญหาให้ผู้ดูแล</button>`);
+    el.querySelector('#helpToForgot').onclick = () => { closeSheet(); renderForgotScan(); };
+    el.querySelector('#helpToProblem').onclick = () => openProblemForm('app', { category: 'กล้อง/สแกนใบหน้า', title: 'สแกนใบหน้าไม่ผ่าน', detail: reason ? `ระบบแจ้งว่า: ${reason}\n` : '' });
   }
 
   async function runScanner(mode, locationChoice) {
@@ -1439,7 +1462,7 @@
         <button class="btn ghost fr-entry" id="frEntryCal">📝 ลืมสแกน<small>ทำงานจริงแต่ลืมสแกน</small></button>
         <button class="btn ghost fr-entry" id="apEntryCal">🏳️ ยื่นคำร้อง<small>หยุดตามคำสั่ง / ลา / มาสาย</small></button>
       </div>`;
-    document.getElementById('frEntryCal').onclick = () => renderForgot(calMonth);
+    document.getElementById('frEntryCal').onclick = () => renderForgotScan(calMonth);
     document.getElementById('apEntryCal').onclick = () => renderAppeals(calMonth);
     document.querySelectorAll('.cal-day').forEach((b) => (b.onclick = () => openDay(days.find((d) => d.date === b.dataset.date))));
   }
@@ -1531,16 +1554,18 @@
     sheet.innerHTML = `<div class="sheet-grip"></div>
       <div class="notif-head"><h2 class="sheet-title">การแจ้งเตือน</h2>${d.unread ? '<button class="linkbtn" id="nAll">อ่านทั้งหมด</button>' : ''}</div>
       ${d.items.length ? `<div class="notif-list">${d.items.map((n) => `
-        <button type="button" class="notif-item${n.read_at ? '' : ' unread'}" data-n="${n.id}">
-          <span class="ic">${/ไม่อนุมัติ/.test(n.title) ? '❌' : /อนุมัติ/.test(n.title) ? '✅' : '🔔'}</span>
+        <button type="button" class="notif-item${n.read_at ? '' : ' unread'}" data-n="${n.id}" data-kind="${esc(n.kind)}">
+          <span class="ic">${n.kind === 'problem' ? (/^แก้ไขปัญหาแล้ว/.test(n.title) ? '✅' : '🛠️') : /ไม่อนุมัติ/.test(n.title) ? '❌' : /อนุมัติ/.test(n.title) ? '✅' : '🔔'}</span>
           <span><b>${esc(n.title)}</b><span class="body">${esc(n.body)}</span><small>${esc(new Date(n.created_at).toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' }))}</small></span>
         </button>`).join('')}</div>` : '<div class="empty">ยังไม่มีการแจ้งเตือน</div>'}
       <button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>`;
     const markRead = async (body) => { try { const r = await api('/api/me/notifications/read', body); setUnread(r.unread); } catch { /* ไม่สำคัญ */ } };
     sheet.querySelectorAll('[data-n]').forEach((b) => (b.onclick = () => {
-      if (!b.classList.contains('unread')) return;
-      b.classList.remove('unread');
-      markRead({ ids: [Number(b.dataset.n)] });
+      if (b.classList.contains('unread')) {
+        b.classList.remove('unread');
+        markRead({ ids: [Number(b.dataset.n)] });
+      }
+      if (b.dataset.kind === 'problem') openMyProblems();
     }));
     sheet.querySelector('#nAll')?.addEventListener('click', (e) => {
       e.target.remove();
@@ -1550,11 +1575,139 @@
   }
   if (bellBtn) bellBtn.onclick = openNotifications;
 
+  // ---------- แจ้งปัญหาการใช้งาน: ส่งได้ทั้งก่อนเข้าสู่ระบบ (กรอกรหัส+ชื่อ) และหลังเข้าสู่ระบบ (ระบบรู้ตัวตนเอง) ----------
+  const PROBLEM_CATS = [
+    { v: 'สมัครสมาชิก/ลงทะเบียน', ic: '📝' }, { v: 'เข้าสู่ระบบ/รหัสผ่าน', ic: '🔑' }, { v: 'กล้อง/สแกนใบหน้า', ic: '📷' },
+    { v: 'GPS/ตำแหน่ง', ic: '📍' }, { v: 'ลงเวลา/ปฏิทิน', ic: '🕒' }, { v: 'OT/คำร้อง/ลืมสแกน', ic: '📄' },
+    { v: 'แอปช้า/ค้าง/เปิดไม่ได้', ic: '🐢' }, { v: 'อื่นๆ', ic: '💬' },
+  ];
+  const PB_TH = { open: 'รอรับเรื่อง', in_progress: 'กำลังแก้ไข', resolved: 'แก้ไขแล้ว' };
+  const helpLink = (id, text) => `<button type="button" class="help-link" id="${id}"><span>🆘</span>${esc(text)}</button>`;
+  const fmtWhen = (iso) => new Date(iso).toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' });
+  const readDataUrl = (file) => new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(new Error('อ่านไฟล์ไม่ได้ กรุณาเลือกไฟล์ใหม่'));
+    fr.readAsDataURL(file);
+  });
+  function openProblemForm(source, pre = {}) {
+    const anon = !token;
+    const el = openSheet(`
+      <h2 class="sheet-title">🆘 แจ้งปัญหาการใช้งาน</h2>
+      ${anon ? `<p class="hint pb-lead">ยังไม่ได้เข้าสู่ระบบ กรุณากรอก<b>รหัสพนักงาน</b>และ<b>ชื่อ</b> เพื่อให้ผู้ดูแลรู้ว่าใครแจ้ง</p>
+        <label class="field"><span>รหัสพนักงาน <b class="bad">*</b></span><input name="emp_code" id="pbCode" autocapitalize="characters" spellcheck="false" maxlength="20" placeholder="เช่น EMP001" value="${esc(pre.emp_code || store.get('last_emp_code', ''))}"></label>
+        <label class="field"><span>ชื่อ-นามสกุล <b class="bad">*</b></span><input id="pbName" maxlength="80" autocomplete="name" placeholder="เช่น สมชาย ใจดี" value="${esc(pre.name || '')}"></label>
+        <label class="field"><span>เบอร์โทร / LINE สำหรับติดต่อกลับ <small>(ไม่บังคับ แต่แนะนำ)</small></span><input id="pbContact" maxlength="60" autocomplete="tel" placeholder="เช่น 0812345678" value="${esc(pre.contact || '')}"></label>`
+    : `<div class="fr-who">ผู้แจ้ง: <b>${esc(me.name)}</b> · รหัส ${esc(me.emp_code)} <small class="muted">(ระบบแนบให้อัตโนมัติ)</small></div>`}
+      <div class="field"><span class="field-label">ประเภทปัญหา <b class="bad">*</b></span>
+        <div class="pb-cats">${PROBLEM_CATS.map((c) => `<label class="pb-cat"><input type="radio" name="pbCat" value="${esc(c.v)}"${pre.category === c.v ? ' checked' : ''}><span><i>${c.ic}</i>${esc(c.v)}</span></label>`).join('')}</div>
+        <em class="err" id="pbCatErr" hidden>กรุณาเลือกประเภทปัญหา</em></div>
+      <label class="field"><span>หัวข้อปัญหา <b class="bad">*</b></span><input id="pbTitle" maxlength="100" placeholder="เช่น กดสแกนแล้วกล้องไม่ขึ้น" value="${esc(pre.title || '')}"></label>
+      <label class="field"><span>รายละเอียด <b class="bad">*</b> <small>เกิดอะไรขึ้น ทำอะไรอยู่ มีข้อความอะไรขึ้นบนจอ</small></span><textarea id="pbDetail" rows="4" maxlength="1500" placeholder="เช่น กดปุ่มสแกนใบหน้าแล้วจอดำ ขึ้นว่า เปิดกล้องไม่ได้ ลองปิดเปิดแอปแล้วก็ยังเป็น">${esc(pre.detail || '')}</textarea></label>
+      <div class="field"><span class="field-label">รูปภาพ / ไฟล์ประกอบ <small>(ไม่บังคับ · สูงสุด 3 ไฟล์ · รูป หรือ PDF)</small></span>
+        <div class="fr-evi">
+          <label class="btn ghost"><input type="file" accept="image/*" capture="environment" id="pbCam" hidden>📷 ถ่ายรูป</label>
+          <label class="btn ghost"><input type="file" accept="image/*,application/pdf,.pdf" multiple id="pbFile" hidden>📎 เลือกรูป/ไฟล์</label>
+        </div>
+        <div class="pb-files" id="pbFiles"></div>
+        <p class="hint">แนะนำ: แคปหน้าจอตอนที่เกิดปัญหาแนบมาด้วย ผู้ดูแลจะแก้ไขได้เร็วขึ้น</p></div>
+      <p class="hint pb-dev">📱 แนบข้อมูลอุปกรณ์ให้อัตโนมัติ: ${esc(deviceSummary())}</p>
+      <button class="btn primary big" id="pbSend">ส่งเรื่องให้ผู้ดูแล</button>
+      <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>`);
+    const sheet = el.querySelector('.sheet');
+    if (anon) bindInputs(sheet);
+    sheet.querySelectorAll('#pbName, #pbTitle, #pbDetail').forEach((x) => x.addEventListener('input', () => { if (x.classList.contains('invalid')) setErr(x, ''); }));
+    const q = (sel) => sheet.querySelector(sel);
+    const files = []; // { data, name, pdf }
+    const drawFiles = () => {
+      q('#pbFiles').innerHTML = files.map((x, i) => `<div class="pb-file">${x.pdf ? `<span class="pb-pdf">📄<small>${esc(x.name)}</small></span>` : `<img src="${x.data}" alt="">`}<button type="button" class="pb-x" data-i="${i}" aria-label="ลบไฟล์">×</button></div>`).join('');
+      q('#pbFiles').querySelectorAll('[data-i]').forEach((b) => (b.onclick = () => { files.splice(Number(b.dataset.i), 1); drawFiles(); }));
+    };
+    const addFiles = async (inp) => {
+      const list = [...inp.files];
+      inp.value = '';
+      for (const f of list) {
+        if (files.length >= 3) { toast('แนบได้สูงสุด 3 ไฟล์', true); break; }
+        try {
+          if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+            if (f.size > 4 * 1024 * 1024) throw new Error('ไฟล์ PDF ใหญ่เกิน 4 MB');
+            const d = (await readDataUrl(f)).replace(/^data:[^;]*;base64,/, 'data:application/pdf;base64,');
+            files.push({ data: d, name: f.name, pdf: true });
+          } else if (!f.type || /^image\//.test(f.type)) {
+            files.push({ data: canvasJpeg(await imageFileToCanvas(f, 1600), 1500000), name: f.name });
+          } else throw new Error('แนบได้เฉพาะรูปภาพหรือ PDF (วิดีโอส่งไม่ได้ ให้แคปหน้าจอแทน)');
+        } catch (err) { toast(err.message, true); }
+      }
+      drawFiles();
+    };
+    q('#pbCam').onchange = (e) => addFiles(e.target);
+    q('#pbFile').onchange = (e) => addFiles(e.target);
+    sheet.querySelectorAll('[name=pbCat]').forEach((r) => (r.onchange = () => { q('#pbCatErr').hidden = true; }));
+    q('#pbSend').onclick = async () => {
+      const cat = q('[name=pbCat]:checked')?.value || '';
+      const title = q('#pbTitle').value.replace(/\s+/g, ' ').trim();
+      const detail = q('#pbDetail').value.trim();
+      let ok = true;
+      if (anon) {
+        ok = setErr(q('#pbCode'), RULES.emp_code(q('#pbCode').value.trim())) && ok;
+        ok = setErr(q('#pbName'), q('#pbName').value.trim().length >= 2 ? '' : 'กรุณากรอกชื่อ-นามสกุล') && ok;
+      }
+      q('#pbCatErr').hidden = !!cat;
+      ok = !!cat && ok;
+      ok = setErr(q('#pbTitle'), title.length >= 3 ? '' : 'กรุณากรอกหัวข้อปัญหา (อย่างน้อย 3 ตัวอักษร)') && ok;
+      ok = setErr(q('#pbDetail'), detail.length >= 5 ? '' : 'กรุณาอธิบายรายละเอียด (อย่างน้อย 5 ตัวอักษร)') && ok;
+      if (!ok) {
+        const bad = sheet.querySelector('.invalid') || (!cat && q('.pb-cats'));
+        bad?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return toast('กรุณากรอกข้อมูลที่ทำเครื่องหมายสีแดง', true);
+      }
+      const btn = q('#pbSend');
+      busy(btn, true, files.length ? 'กำลังส่ง (อัปโหลดไฟล์)…' : 'กำลังส่ง…');
+      const body = { category: cat, title, detail, files: files.map((x) => x.data), device: deviceSummary(), source };
+      if (anon) Object.assign(body, { emp_code: q('#pbCode').value.trim(), name: q('#pbName').value.trim(), contact: q('#pbContact').value.trim() });
+      try {
+        const r = await api('/api/problems', body);
+        if (anon) store.set('last_emp_code', body.emp_code);
+        sheet.innerHTML = `<div class="sheet-grip"></div>
+          <div class="pb-done"><div class="check">✓</div><h2>ส่งเรื่องถึงผู้ดูแลแล้ว</h2>
+            <p class="pb-no">เลขที่เรื่อง <b>#${esc(r.problem.id)}</b> · ${esc(title)}</p>
+            ${r.identified
+    ? '<p class="muted">เมื่อผู้ดูแลรับเรื่องหรือแก้ไขเสร็จ จะแจ้งผลที่กระดิ่ง 🔔 มุมขวาบน · ดูสถานะได้ที่ เมนูประวัติ → "เรื่องที่ฉันแจ้ง"</p>'
+    : `<p class="muted">ผู้ดูแลได้รับเรื่องแล้ว จะแก้ไขหรือติดต่อกลับ${body.contact ? ` ทาง <b>${esc(body.contact)}</b>` : ''} โดยเร็ว</p>`}
+          </div>
+          ${r.identified ? '<button class="btn ghost big" id="pbToMine">ดูเรื่องที่ฉันแจ้ง</button>' : ''}
+          <button class="btn primary big" data-close style="margin-top:8px">ปิด</button>`;
+        sheet.querySelector('#pbToMine')?.addEventListener('click', openMyProblems);
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+  }
+  async function openMyProblems() {
+    const el = openSheet('<h2 class="sheet-title">เรื่องที่ฉันแจ้ง</h2><div class="empty">กำลังโหลด…</div>');
+    let d;
+    try { d = await api('/api/me/problems'); } catch (err) { closeSheet(); return toast(err.message, true); }
+    const sheet = el.querySelector('.sheet');
+    if (!sheet || !sheet.isConnected) return;
+    sheet.innerHTML = `<div class="sheet-grip"></div><h2 class="sheet-title">เรื่องที่ฉันแจ้ง</h2>
+      ${d.items.length ? `<div class="pb-list">${d.items.map((x) => `
+        <div class="pb-item ${x.status}">
+          <div class="pb-item-top"><span class="pb-st ${x.status}">${PB_TH[x.status] || esc(x.status)}</span><small class="muted">#${esc(x.id)} · ${esc(fmtWhen(x.created_at))}</small></div>
+          <b>${esc(x.title)}</b>
+          <div class="sub">${esc(x.category)}${x.files ? ` · 📎 ${esc(x.files)} ไฟล์` : ''}</div>
+          ${x.status === 'in_progress' ? `<div class="pb-reply">🛠️ <b>${esc(x.taken_by || 'ผู้ดูแล')}</b> รับเรื่องแล้ว กำลังแก้ไข</div>` : ''}
+          ${x.status === 'resolved' ? `<div class="pb-reply ok">✅ แก้ไขแล้วโดย <b>${esc(x.resolved_by || 'ผู้ดูแล')}</b>${x.resolve_note ? `<p>${esc(x.resolve_note)}</p>` : ''}</div>
+            <small class="muted">เรื่องนี้จะลบอัตโนมัติ ${esc(fmtWhen(x.expires_at))}</small>` : ''}
+        </div>`).join('')}</div>` : '<div class="empty">ยังไม่เคยแจ้งปัญหา</div>'}
+      <p class="hint">เรื่องที่แก้ไขแล้วจะถูกลบอัตโนมัติหลัง 7 วัน เพื่อประหยัดพื้นที่</p>
+      <button class="btn primary big" id="pbNew2">แจ้งปัญหาใหม่</button>
+      <button class="btn ghost big" data-close style="margin-top:8px">ปิด</button>`;
+    sheet.querySelector('#pbNew2').onclick = () => openProblemForm('app');
+  }
+
   // ---------- ลืมสแกน: ขอบันทึกเวลาย้อนหลัง (แนบรูปใบลงเวลา) ----------
   let forgotMonth = null;
   const SR_TH = { pending: 'รอผู้ดูแลตรวจสอบ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ' };
   const todayTHStr = () => serverNow().toLocaleDateString('en-CA', { timeZone: TZ });
-  async function renderForgot(month) {
+  async function renderForgotScan(month) {
     const from = current;
     forgotMonth = month || forgotMonth || ymOf(serverNow());
     view.innerHTML = `
@@ -1569,8 +1722,8 @@
       </div>
       <div id="frBody"><div class="card empty">กำลังโหลด…</div></div>`;
     document.getElementById('frBack').onclick = () => go(from);
-    document.getElementById('frPrevM').onclick = () => renderForgot(shiftYm(forgotMonth, -1));
-    document.getElementById('frNextM').onclick = () => renderForgot(shiftYm(forgotMonth, 1));
+    document.getElementById('frPrevM').onclick = () => renderForgotScan(shiftYm(forgotMonth, -1));
+    document.getElementById('frNextM').onclick = () => renderForgotScan(shiftYm(forgotMonth, 1));
     document.getElementById('frToAppeal').onclick = () => renderAppeals(forgotMonth);
     let cal;
     let mine;
@@ -1579,7 +1732,7 @@
     } catch (err) {
       const b = document.getElementById('frBody');
       if (b) b.innerHTML = `<div class="card empty">${esc(err.message)}<div style="margin-top:12px"><button class="btn primary" id="frRetry">ลองใหม่</button></div></div>`;
-      document.getElementById('frRetry')?.addEventListener('click', () => renderForgot(forgotMonth));
+      document.getElementById('frRetry')?.addEventListener('click', () => renderForgotScan(forgotMonth));
       return;
     }
     const body = document.getElementById('frBody');
@@ -1734,7 +1887,7 @@
         });
         closeSheet();
         toast('ส่งคำขอแล้ว รอผู้ดูแลตรวจสอบ ผลจะแจ้งที่กระดิ่ง 🔔');
-        if (document.getElementById('frBody')) renderForgot(forgotMonth);
+        if (document.getElementById('frBody')) renderForgotScan(forgotMonth);
         else if (current === 'cal') renderCalendar(calMonth);
       } catch (err) { toast(err.message, true); busy(btn, false); }
     };
@@ -1760,7 +1913,7 @@
       </div>
       <div id="apBody"><div class="card empty">กำลังโหลด…</div></div>`;
     document.getElementById('apBack').onclick = () => go(from);
-    document.getElementById('apToForgot').onclick = () => renderForgot(appealMonth);
+    document.getElementById('apToForgot').onclick = () => renderForgotScan(appealMonth);
     document.getElementById('apPrevM').onclick = () => renderAppeals(shiftYm(appealMonth, -1));
     document.getElementById('apNextM').onclick = () => renderAppeals(shiftYm(appealMonth, 1));
     let cal;
@@ -1955,12 +2108,19 @@
         </div>
         <button class="linkbtn danger" id="logout">ออกจากระบบ</button>
       </div>
+      <div class="card pb-card">
+        <span class="pb-card-ic">🆘</span>
+        <div class="pb-card-txt"><b>พบปัญหาการใช้งาน?</b><small>แจ้งผู้ดูแลพร้อมแนบรูปได้ · ผลการแก้ไขจะแจ้งที่กระดิ่ง 🔔</small></div>
+        <div class="pb-card-act"><button class="btn primary sm" id="pbNew">แจ้งปัญหา</button><button class="btn ghost sm" id="pbMine">เรื่องที่ฉันแจ้ง</button></div>
+      </div>
       <h1 class="screen-title"><span class="dot"></span>ประวัติของฉัน</h1>
       <div id="hist"><div class="card empty">กำลังโหลด…</div></div>`;
     document.getElementById('chAvatar').onclick = changeAvatar;
     document.getElementById('chPhone').onclick = openPhoneSheet;
     document.getElementById('devCheck').onclick = deviceCheck;
     document.getElementById('chCode').onclick = openCodeSheet;
+    document.getElementById('pbNew').onclick = () => openProblemForm('app');
+    document.getElementById('pbMine').onclick = openMyProblems;
     loadCodeRequest();
     document.getElementById('logout').onclick = async () => {
       if (!confirm('ออกจากระบบ?\nครั้งต่อไปต้องใส่รหัสพนักงานและรหัสผ่านใหม่')) return;

@@ -446,3 +446,45 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 .dev-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
 .dev-row b { text-align: right; }
 .dev-row b.ok { color: var(--ok, #0f9d76); } .dev-row b.bad { color: var(--bad, #c62828); } .dev-row b.warn { color: #b26a00; }
+
+/* ---------- แจ้งปัญหาการใช้งาน ---------- */
+.help-link { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin: 16px 0 4px; padding: 12px 14px; border: 1.5px dashed var(--border); border-radius: 12px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.help-link span { font-size: 16px; }
+.help-link:active, .help-link:hover { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+.pb-lead { margin: -4px 0 12px; }
+.pb-cats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pb-cat { position: relative; }
+.pb-cat input { position: absolute; opacity: 0; pointer-events: none; }
+.pb-cat span { display: flex; align-items: center; gap: 6px; min-height: 44px; height: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 12px; font-size: 13.5px; line-height: 1.3; cursor: pointer; background: var(--surface); }
+.pb-cat i { font-style: normal; font-size: 17px; }
+.pb-cat input:checked + span { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); font-weight: 700; }
+.pb-cat input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+.pb-files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.pb-files:empty { display: none; }
+.pb-file { position: relative; width: 88px; height: 88px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--surface-2); }
+.pb-file img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pb-pdf { display: grid; place-items: center; align-content: center; gap: 2px; width: 100%; height: 100%; font-size: 26px; padding: 4px; text-align: center; }
+.pb-pdf small { font-size: 10.5px; color: var(--muted); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-x { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .62); color: #fff; font-size: 17px; line-height: 1; cursor: pointer; }
+.pb-dev { font-size: 12.5px; word-break: break-word; }
+.pb-done { text-align: center; padding: 8px 4px 4px; }
+.pb-done .check { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin: 4px auto 12px; background: var(--ok-soft); color: var(--ok); font-size: 32px; font-weight: 700; }
+.pb-done h2 { margin: 0 0 6px; }
+.pb-no { margin: 0 0 8px; word-break: break-word; }
+.pb-card { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; }
+.pb-card-ic { font-size: 26px; }
+.pb-card-txt b { display: block; }
+.pb-card-txt small { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.pb-card-act { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pb-card-act .btn { flex: 1 1 130px; }
+.pb-list { display: grid; gap: 10px; }
+.pb-item { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: 12px; background: var(--surface-2); word-break: break-word; }
+.pb-item.in_progress { border-left-color: var(--ot); }
+.pb-item.resolved { border-left-color: var(--ok); }
+.pb-item-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pb-st { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700; background: var(--warn-soft); color: var(--warn); }
+.pb-st.in_progress { background: var(--ot-soft); color: var(--ot); }
+.pb-st.resolved { background: var(--ok-soft); color: var(--ok); }
+.pb-reply { margin-top: 4px; padding: 8px 10px; border-radius: 10px; background: var(--ot-soft); font-size: 14px; }
+.pb-reply.ok { background: var(--ok-soft); }
+.pb-reply p { margin: 4px 0 0; white-space: pre-wrap; }
