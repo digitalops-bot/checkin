@@ -354,3 +354,64 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 .cam-help { margin: 8px 0 14px; padding-left: 20px; display: grid; gap: 8px; line-height: 1.55; }
 .cam-help-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 @media (prefers-color-scheme: dark) { .cam-warn { background: #3a2a10; color: #ffd59a; border-color: #6b4a14; } }
+
+/* ---------- กระดิ่งแจ้งเตือน ---------- */
+.bell-btn { position: relative; margin-left: 8px; }
+.bell-btn + .appbar-btn { margin-left: 6px; }
+.bell-badge { position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #e5484d; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--primary); }
+.notif-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.notif-list { display: grid; gap: 8px; max-height: 60vh; overflow: auto; }
+.notif-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; font: inherit; color: inherit; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.notif-item .ic { font-size: 18px; line-height: 1.3; }
+.notif-item b { display: block; line-height: 1.35; }
+.notif-item .body { display: block; margin-top: 2px; font-size: 14px; line-height: 1.45; }
+.notif-item small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.notif-item.unread { border-color: var(--primary); background: var(--primary-soft, #e3f3ef); }
+.notif-item.unread b::after { content: ' • ใหม่'; color: #e5484d; font-size: 12px; }
+
+/* ---------- ลืมสแกน ---------- */
+.fr-entry { width: 100%; margin-top: 10px; }
+.fr-open-btn { margin-top: 12px; }
+.fr-month { margin: 0; font-size: 18px; }
+.fr-hint { margin-top: -4px; }
+.fr-day { border: 2px solid transparent; }
+.fr-day.fr-need { background: #fde8e8; border-color: #e5484d; color: #a3171c; font-weight: 700; }
+.fr-day.fr-open { background: var(--surface-2); }
+.fr-day.fr-pending { background: #fff4e5; border-color: #f0a34a; }
+.fr-day.fr-approved, .fr-day.fr-done { background: #e6f6ef; color: #0f7a5a; opacity: .7; }
+.fr-day.fr-off { opacity: .3; }
+.fr-day[disabled] { cursor: default; }
+.cal-legend i.fr-need { background: #e5484d; } .cal-legend i.fr-open { background: var(--border); }
+.cal-legend i.fr-pending { background: #f0a34a; } .cal-legend i.fr-done { background: #34b38a; }
+.fr-item { padding: 12px 14px; margin-bottom: 8px; }
+.fr-item-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 2px; }
+.fr-who { margin: -4px 0 12px; color: var(--muted); font-size: 14px; }
+.fr-scans { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.fr-side { border-radius: 12px; padding: 10px 12px; border: 1px solid var(--border); display: grid; gap: 2px; font-size: 14px; }
+.fr-side span { color: var(--muted); font-size: 13px; }
+.fr-side.has { background: #e6f6ef; border-color: #b7e4cf; color: #0f7a5a; }
+.fr-side.miss { background: #fde8e8; border-color: #f3b8b8; color: #a3171c; }
+.fr-block { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--surface-2); font-weight: 600; }
+.fr-shifts { display: flex; flex-wrap: wrap; gap: 8px; }
+.fr-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.fr-chip span { display: inline-block; padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 999px; font-size: 14px; cursor: pointer; }
+.fr-chip input:checked + span { border-color: var(--primary); background: var(--primary-soft, #e3f3ef); color: var(--primary); font-weight: 700; }
+.fr-times { display: grid; gap: 10px; margin: 6px 0 14px; }
+.fr-time { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.fr-check { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.fr-check input { width: 20px; height: 20px; }
+.time24 { display: inline-flex; align-items: center; gap: 4px; }
+.time24 select { min-height: 42px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 17px; font-variant-numeric: tabular-nums; }
+.time24 select:disabled { opacity: .4; }
+.time24 small { color: var(--muted); }
+.fr-evi { display: flex; flex-wrap: wrap; gap: 8px; }
+.fr-evi .btn { flex: 1 1 140px; cursor: pointer; }
+.fr-preview { display: block; width: 100%; max-height: 260px; object-fit: contain; margin-top: 10px; border-radius: 12px; background: #000; }
+#frReason { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font: inherit; background: var(--surface); color: var(--text); }
+@media (prefers-color-scheme: dark) {
+  .fr-day.fr-need, .fr-side.miss { background: #3b1a1c; color: #ffb4b4; }
+  .fr-day.fr-pending { background: #3a2a10; }
+  .fr-day.fr-approved, .fr-day.fr-done, .fr-side.has { background: #12332a; color: #8fe3c4; }
+}
+/* จอแคบ: มีกระดิ่ง+รีเฟรชแล้ว ซ่อนรหัสพนักงานบนแถบบน (ดูได้ในหน้าโปรไฟล์) */
+@media (max-width: 420px) { .appbar .user { display: none; } .appbar .bell-btn { margin-left: auto; } }

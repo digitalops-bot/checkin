@@ -150,6 +150,8 @@
     document.querySelector('.scanner .scan-x')?.click();
     token = null;
     me = null;
+    document.getElementById('bellBtn')?.setAttribute('hidden', '');
+    notifAutoShown = false;
     store.del('emp_token');
     store.del('emp_profile');
     renderLogin();
@@ -481,7 +483,9 @@
         <button class="btn ${IS_IOS ? 'primary' : 'ghost'}" id="copyAppUrl">คัดลอกลิงก์</button>
         <button class="btn ghost" data-close>ปิด</button>
       </div>
-      <p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>`);
+      <p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>
+      ${token ? '<button class="btn ghost big" id="camToForgot">📝 สแกนไม่ได้ตอนนี้? ขอบันทึกเวลา (แนบรูปใบลงเวลา)</button>' : ''}`);
+    el.querySelector('#camToForgot')?.addEventListener('click', () => { closeSheet(); renderForgot(); });
     el.querySelector('#copyAppUrl').onclick = async () => {
       try { await navigator.clipboard.writeText(appUrl()); toast('คัดลอกลิงก์แล้ว นำไปวางใน ' + (IS_IOS ? 'Safari' : 'Chrome')); }
       catch { prompt('คัดลอกลิงก์นี้ไปเปิดใน ' + (IS_IOS ? 'Safari' : 'Chrome'), appUrl()); }
@@ -583,6 +587,10 @@
 
   // ถ่ายรูปโปรไฟล์จากกล้องหน้า (ไม่มีเลือกจากคลังรูป) · ได้รูปสี่เหลี่ยมจัตุรัส 320px แบบกระจก
   function captureAvatar() {
+    if (!hasCameraApi()) {
+      toast('เบราว์เซอร์นี้เปิดกล้องไม่ได้ เลือกรูปหน้าตรงจากเครื่อง หรือถ่ายรูปแทน');
+      return pickAvatarFile();
+    }
     return new Promise((resolve) => {
       const ov = document.createElement('div');
       ov.className = 'scanner avatar-cam';
@@ -722,9 +730,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>
           สแกนใบหน้า${isIn ? 'เข้างาน' : 'ออกงาน'}</button>
         <p class="hint">กดแล้วมองตรงเข้ากล้อง ค้างไว้นิ่งๆ 5 วินาที (ไม่ต้องขยับหน้า) ระบบจะถ่ายรูปพร้อมประทับเวลาจริง พิกัด และสถานที่ทำงานให้อัตโนมัติ</p>
+        <button type="button" class="btn ghost fr-entry" id="frEntryScan">📝 ลืมสแกน? ขอบันทึกเวลาย้อนหลัง</button>
         <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
       </div>`;
 
+    document.getElementById('frEntryScan').onclick = () => renderForgot();
     const lc = document.getElementById('lc');
     const ld = document.getElementById('ld');
     const drawClock = () => { const d = serverNow(); lc.textContent = fmtClock(d); ld.textContent = fmtDay(d); };
@@ -1327,7 +1337,9 @@
         </div>
       </div>
       <p class="hint">${schedule.shifts.map((x) => `${esc(x.name)} ${esc(x.start)}–${esc(x.end)} น.`).join(' · ')}<br>
-        แตะวันที่เป็น<b class="bad"> สีแดง </b>เพื่อดูสาเหตุและยื่นคำร้อง</p>`;
+        แตะวันที่เป็น<b class="bad"> สีแดง </b>เพื่อดูสาเหตุและยื่นคำร้อง</p>
+      <button class="btn ghost big fr-entry" id="frEntryCal">📝 ลืมสแกน? ขอบันทึกเวลาย้อนหลัง</button>`;
+    document.getElementById('frEntryCal').onclick = () => renderForgot(calMonth);
     document.querySelectorAll('.cal-day').forEach((b) => (b.onclick = () => openDay(days.find((d) => d.date === b.dataset.date))));
   }
 
@@ -1346,6 +1358,263 @@
     document.body.classList.remove('sheet-open');
   }
 
+  // ---------- รูปจากไฟล์ (ใบลงเวลา / รูปโปรไฟล์กรณีเปิดกล้องไม่ได้) → JPEG ย่อขนาด ----------
+  function imageFileToCanvas(file, max) {
+    return new Promise((resolve, reject) => {
+      if (!file) return reject(new Error('ไม่ได้เลือกไฟล์'));
+      if (file.type && !/^image\//.test(file.type)) return reject(new Error('กรุณาเลือกไฟล์รูปภาพ (JPG/PNG)'));
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.naturalWidth * s));
+        c.height = Math.max(1, Math.round(img.naturalHeight * s));
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        resolve(c);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('เปิดไฟล์รูปนี้ไม่ได้ กรุณาถ่ายรูปใหม่ หรือเลือกรูป JPG/PNG')); };
+      img.src = url;
+    });
+  }
+  const canvasJpeg = (c, maxLen) => {
+    let q = 0.85;
+    let d = c.toDataURL('image/jpeg', q);
+    while (d.length > maxLen && q > 0.35) { q -= 0.1; d = c.toDataURL('image/jpeg', q); }
+    return d;
+  };
+  // เลือกรูปโปรไฟล์จากเครื่อง (ใช้เฉพาะเมื่อเบราว์เซอร์เปิดกล้องไม่ได้) → ครอปสี่เหลี่ยมกลางภาพ 320px
+  function pickAvatarFile() {
+    return new Promise((resolve) => {
+      const inp = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+      inp.setAttribute('capture', 'user');
+      inp.onchange = async () => {
+        try {
+          const src = await imageFileToCanvas(inp.files[0], 1200);
+          const side = Math.min(src.width, src.height);
+          const c = document.createElement('canvas');
+          c.width = c.height = 320;
+          c.getContext('2d').drawImage(src, (src.width - side) / 2, (src.height - side) / 2, side, side, 0, 0, 320, 320);
+          resolve(canvasJpeg(c, 38000));
+        } catch (err) { toast(err.message, true); resolve(null); }
+      };
+      inp.click();
+    });
+  }
+
+  // ---------- การแจ้งเตือนถึงพนักงาน (กระดิ่งมุมขวาบน) ----------
+  const bellBtn = document.getElementById('bellBtn');
+  let notifAutoShown = false;
+  function setUnread(n) {
+    if (!bellBtn) return;
+    bellBtn.hidden = !token;
+    const b = bellBtn.querySelector('.bell-badge');
+    b.hidden = !n;
+    b.textContent = n > 9 ? '9+' : String(n || '');
+    // เปิดหน้าต่างแจ้งเตือนให้อัตโนมัติ 1 ครั้ง เมื่อมีเรื่องใหม่ที่ยังไม่อ่าน
+    if (n && !notifAutoShown && !document.querySelector('.sheet-back') && !document.body.classList.contains('scanning')) {
+      notifAutoShown = true;
+      openNotifications();
+    }
+  }
+  async function openNotifications() {
+    const el = openSheet('<h2 class="sheet-title">การแจ้งเตือน</h2><div class="empty">กำลังโหลด…</div>');
+    let d;
+    try { d = await api('/api/me/notifications'); } catch (err) { closeSheet(); return toast(err.message, true); }
+    const sheet = el.querySelector('.sheet');
+    if (!sheet) return;
+    sheet.innerHTML = `<div class="sheet-grip"></div>
+      <div class="notif-head"><h2 class="sheet-title">การแจ้งเตือน</h2>${d.unread ? '<button class="linkbtn" id="nAll">อ่านทั้งหมด</button>' : ''}</div>
+      ${d.items.length ? `<div class="notif-list">${d.items.map((n) => `
+        <button type="button" class="notif-item${n.read_at ? '' : ' unread'}" data-n="${n.id}">
+          <span class="ic">${/ไม่อนุมัติ/.test(n.title) ? '❌' : /อนุมัติ/.test(n.title) ? '✅' : '🔔'}</span>
+          <span><b>${esc(n.title)}</b><span class="body">${esc(n.body)}</span><small>${esc(new Date(n.created_at).toLocaleString('th-TH', { timeZone: TZ, dateStyle: 'medium', timeStyle: 'short' }))}</small></span>
+        </button>`).join('')}</div>` : '<div class="empty">ยังไม่มีการแจ้งเตือน</div>'}
+      <button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>`;
+    const markRead = async (body) => { try { const r = await api('/api/me/notifications/read', body); setUnread(r.unread); } catch { /* ไม่สำคัญ */ } };
+    sheet.querySelectorAll('[data-n]').forEach((b) => (b.onclick = () => {
+      if (!b.classList.contains('unread')) return;
+      b.classList.remove('unread');
+      markRead({ ids: [Number(b.dataset.n)] });
+    }));
+    sheet.querySelector('#nAll')?.addEventListener('click', (e) => {
+      e.target.remove();
+      sheet.querySelectorAll('.notif-item.unread').forEach((x) => x.classList.remove('unread'));
+      markRead({ all: true });
+    });
+  }
+  if (bellBtn) bellBtn.onclick = openNotifications;
+
+  // ---------- ลืมสแกน: ขอบันทึกเวลาย้อนหลัง (แนบรูปใบลงเวลา) ----------
+  let forgotMonth = null;
+  const SR_TH = { pending: 'รอผู้ดูแลตรวจสอบ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ' };
+  const todayTHStr = () => serverNow().toLocaleDateString('en-CA', { timeZone: TZ });
+  async function renderForgot(month) {
+    const from = current;
+    forgotMonth = month || forgotMonth || ymOf(serverNow());
+    view.innerHTML = `
+      <button class="back" id="frBack">‹ กลับ</button>
+      <h1 class="screen-title"><span class="dot"></span>ลืมสแกน · ขอบันทึกเวลา</h1>
+      <p class="hint fr-hint">แตะวันที่ลืมสแกนเข้า/ออกงาน · วัน<b class="bad">สีแดง</b>คือวันที่ระบบพบว่าสแกนไม่ครบ · วันที่สแกนครบแล้วเลือกไม่ได้</p>
+      <div class="cal-head">
+        <button class="btn ghost cal-nav" id="frPrevM" aria-label="เดือนก่อน">‹</button>
+        <h2 class="fr-month">${esc(monthTH(forgotMonth))}</h2>
+        <button class="btn ghost cal-nav" id="frNextM" aria-label="เดือนถัดไป">›</button>
+      </div>
+      <div id="frBody"><div class="card empty">กำลังโหลด…</div></div>`;
+    document.getElementById('frBack').onclick = () => go(from);
+    document.getElementById('frPrevM').onclick = () => renderForgot(shiftYm(forgotMonth, -1));
+    document.getElementById('frNextM').onclick = () => renderForgot(shiftYm(forgotMonth, 1));
+    let cal;
+    let mine;
+    try {
+      [cal, mine] = await Promise.all([api(`/api/me/calendar?month=${forgotMonth}`), api('/api/me/scan-requests')]);
+    } catch (err) {
+      const b = document.getElementById('frBody');
+      if (b) b.innerHTML = `<div class="card empty">${esc(err.message)}<div style="margin-top:12px"><button class="btn primary" id="frRetry">ลองใหม่</button></div></div>`;
+      document.getElementById('frRetry')?.addEventListener('click', () => renderForgot(forgotMonth));
+      return;
+    }
+    const body = document.getElementById('frBody');
+    if (!body) return;
+    const todayStr = todayTHStr();
+    document.getElementById('frNextM').disabled = forgotMonth >= todayStr.slice(0, 7);
+    document.getElementById('frPrevM').disabled = !!cal.start_date && forgotMonth <= cal.start_date.slice(0, 7);
+    const reqBy = {};
+    mine.items.forEach((r) => { if (!reqBy[r.work_date] || r.status !== 'rejected') reqBy[r.work_date] = reqBy[r.work_date] && reqBy[r.work_date].status !== 'rejected' ? reqBy[r.work_date] : r; });
+    const lead = new Date(`${cal.days[0].date}T12:00:00Z`).getUTCDay();
+    const stateOf = (d) => {
+      const r = reqBy[d.date];
+      if (d.date > todayStr || (cal.start_date && d.date < cal.start_date)) return 'off';
+      if (r && r.status === 'pending') return 'pending';
+      if (r && r.status === 'approved') return 'approved';
+      if (d.checkin && d.checkout) return 'done';
+      return d.color === 'red' ? 'need' : 'open';
+    };
+    const MARK = { pending: '⏳', approved: '✓', done: '✓', need: '!', open: '', off: '' };
+    body.innerHTML = `
+      <div class="card cal-card">
+        <div class="cal-grid cal-week">${WEEK_TH.map((w) => `<span>${w}</span>`).join('')}</div>
+        <div class="cal-grid">
+          ${'<span></span>'.repeat(lead)}
+          ${cal.days.map((d) => { const st = stateOf(d); return `<button class="cal-day fr-day fr-${st}${d.date === todayStr ? ' today' : ''}" data-date="${d.date}" ${st === 'off' || st === 'done' ? 'disabled' : ''}>
+            <span class="n">${Number(d.date.slice(8))}</span><span class="m">${MARK[st]}</span></button>`; }).join('')}
+        </div>
+        <div class="cal-legend">
+          <span><i class="fr-need"></i>สแกนไม่ครบ (ควรขอ)</span><span><i class="fr-open"></i>ขอได้</span>
+          <span><i class="fr-pending"></i>รอตรวจสอบ</span><span><i class="fr-done"></i>สแกนครบ/อนุมัติแล้ว</span>
+        </div>
+      </div>
+      <h2 class="section-title">คำขอของฉัน</h2>
+      ${mine.items.length ? mine.items.slice(0, 15).map((r) => `
+        <div class="card fr-item">
+          <div class="fr-item-top"><b>${esc(thDate(r.work_date))}</b><span class="badge ${r.status}">${SR_TH[r.status]}</span></div>
+          <div class="sub">${esc(r.shift_name || '')} · ขอ ${[r.req_in && `เข้างาน ${esc(r.req_in)}`, r.req_out && `ออกงาน ${esc(r.req_out)}`].filter(Boolean).join(' · ')} น.</div>
+          ${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">ผู้ดูแลบันทึก ${[r.approved_in && `เข้างาน ${esc(r.approved_in)}`, r.approved_out && `ออกงาน ${esc(r.approved_out)}`].filter(Boolean).join(' · ')} น.</div>` : ''}
+          ${r.review_note ? `<div class="sub">ผู้ดูแล: ${esc(r.review_note)}</div>` : ''}
+        </div>`).join('') : '<div class="card empty">ยังไม่มีคำขอ</div>'}`;
+    body.querySelectorAll('.fr-day:not([disabled])').forEach((b) => (b.onclick = () => openForgotForm(b.dataset.date)));
+  }
+
+  // ฟอร์มขอบันทึกเวลาของวันที่เลือก
+  const timeSel = (side, value) => {
+    const [h, m] = (value || '08:00').split(':');
+    return `<span class="time24" data-side="${side}">
+      <select data-p="h" aria-label="ชั่วโมง">${Array.from({ length: 24 }, (_, i) => `<option${pad(i) === h ? ' selected' : ''}>${pad(i)}</option>`).join('')}</select><b>:</b>
+      <select data-p="m" aria-label="นาที">${Array.from({ length: 60 }, (_, i) => `<option${pad(i) === m ? ' selected' : ''}>${pad(i)}</option>`).join('')}</select> <small>น.</small></span>`;
+  };
+  async function openForgotForm(date) {
+    const el = openSheet('<h2 class="sheet-title">ขอบันทึกเวลา</h2><div class="empty">กำลังโหลด…</div>');
+    let info;
+    try { info = await api(`/api/me/scan-request?date=${date}`); } catch (err) { closeSheet(); return toast(err.message, true); }
+    const sheet = el.querySelector('.sheet');
+    if (!sheet || !sheet.isConnected) return;
+    const head = `<div class="sheet-grip"></div><h2 class="sheet-title">ลืมสแกน · ${esc(thDate(date))}</h2>
+      <div class="fr-who">ผู้ยื่น: <b>${esc(me.name)}</b> · รหัส ${esc(me.emp_code)}</div>`;
+    const scanRow = (label, t) => `<div class="fr-side ${t ? 'has' : 'miss'}"><span>${label}</span><b>${t ? `สแกนแล้ว ${esc(t)} น. ✓` : 'ยังไม่ได้สแกน'}</b></div>`;
+    if (info.block) {
+      const ex = info.existing;
+      sheet.innerHTML = `${head}${scanRow('เข้างาน', info.scans.in)}${scanRow('ออกงาน', info.scans.out)}
+        <div class="fr-block">${esc(info.block)}</div>
+        ${ex ? `<div class="sub" style="margin-top:8px">คำขอ: ${[ex.req_in && `เข้างาน ${esc(ex.req_in)}`, ex.req_out && `ออกงาน ${esc(ex.req_out)}`].filter(Boolean).join(' · ')} น. · ${SR_TH[ex.status]}</div>` : ''}
+        <button class="btn ghost big" data-close style="margin-top:12px">ปิด</button>`;
+      return;
+    }
+    const needIn = !info.scans.in;
+    const needOut = !info.scans.out;
+    const shift0 = info.shifts.find((s) => s.id === info.shift_id) || info.shifts[0];
+    sheet.innerHTML = `${head}
+      <div class="fr-scans">
+        ${scanRow('เข้างาน', info.scans.in)}${scanRow('ออกงาน', info.scans.out)}
+      </div>
+      <div class="field"><span class="field-label">กะที่ทำงานวันนั้น</span>
+        <div class="fr-shifts">${info.shifts.map((s) => `<label class="fr-chip"><input type="radio" name="frShift" value="${esc(s.id)}"${s.id === shift0.id ? ' checked' : ''}><span>${esc(s.name)} ${esc(s.start)}–${esc(s.end)}</span></label>`).join('')}</div></div>
+      <div class="fr-times">
+        ${needIn ? `<div class="fr-time"><label class="fr-check"><input type="checkbox" id="wantIn" checked> ลืมสแกน<b>เข้างาน</b></label>${timeSel('in', shift0.start)}</div>` : ''}
+        ${needOut ? `<div class="fr-time"><label class="fr-check"><input type="checkbox" id="wantOut" checked> ลืมสแกน<b>ออกงาน</b></label>${timeSel('out', shift0.end)}</div>` : ''}
+        <p class="hint">ระบบใส่เวลาตามกะให้ ถ้าไม่ตรงกับเวลาจริง แก้ตัวเลขได้</p>
+      </div>
+      <div class="field"><span class="field-label">หลักฐาน <b class="bad">*</b> <small>รูปใบลงเวลา / ใบเซ็นชื่อ / เอกสารยืนยัน</small></span>
+        <div class="fr-evi">
+          <label class="btn ghost"><input type="file" accept="image/*" capture="environment" id="frCam" hidden>📷 ถ่ายรูปใบลงเวลา</label>
+          <label class="btn ghost"><input type="file" accept="image/*" id="frFile" hidden>📎 เลือกรูปจากเครื่อง</label>
+        </div>
+        <img id="frPreview" class="fr-preview" alt="" hidden>
+        <em class="err" id="frEviErr" hidden>กรุณาแนบรูปหลักฐาน</em></div>
+      <label class="field"><span>เหตุผลที่ลืมสแกน <small>(ไม่บังคับ)</small></span><textarea id="frReason" maxlength="300" rows="2" placeholder="เช่น โทรศัพท์แบตหมด / ลืมกดสแกน"></textarea></label>
+      <button class="btn primary big" id="frSend">ส่งคำขอ</button>
+      <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>`;
+    let evidence = '';
+    const getT = (side) => { const t = sheet.querySelector(`.time24[data-side="${side}"]`); return t ? `${t.querySelector('[data-p=h]').value}:${t.querySelector('[data-p=m]').value}` : ''; };
+    const setT = (side, v) => { const t = sheet.querySelector(`.time24[data-side="${side}"]`); if (!t) return; const [h, m] = v.split(':'); t.querySelector('[data-p=h]').value = h; t.querySelector('[data-p=m]').value = m; };
+    sheet.querySelectorAll('[name=frShift]').forEach((r) => (r.onchange = () => {
+      const s = info.shifts.find((x) => x.id === r.value);
+      if (needIn) setT('in', s.start);
+      if (needOut) setT('out', s.end);
+    }));
+    ['in', 'out'].forEach((side) => {
+      const cb = sheet.querySelector(side === 'in' ? '#wantIn' : '#wantOut');
+      if (cb) cb.onchange = () => sheet.querySelectorAll(`.time24[data-side="${side}"] select`).forEach((x) => (x.disabled = !cb.checked));
+    });
+    const onFile = async (inp) => {
+      const f = inp.files[0];
+      inp.value = '';
+      if (!f) return;
+      try {
+        evidence = canvasJpeg(await imageFileToCanvas(f, 1600), 3000000);
+        const pv = sheet.querySelector('#frPreview');
+        pv.src = evidence;
+        pv.hidden = false;
+        sheet.querySelector('#frEviErr').hidden = true;
+      } catch (err) { toast(err.message, true); }
+    };
+    sheet.querySelector('#frCam').onchange = (e) => onFile(e.target);
+    sheet.querySelector('#frFile').onchange = (e) => onFile(e.target);
+    sheet.querySelector('#frSend').onclick = async (e) => {
+      const btn = e.currentTarget;
+      const wantIn = needIn && sheet.querySelector('#wantIn').checked;
+      const wantOut = needOut && sheet.querySelector('#wantOut').checked;
+      if (!wantIn && !wantOut) return toast('กรุณาเลือกอย่างน้อย 1 รายการที่ลืมสแกน', true);
+      if (!evidence) { sheet.querySelector('#frEviErr').hidden = false; return toast('กรุณาแนบรูปหลักฐาน (ถ่ายรูปใบลงเวลา หรือเลือกรูป)', true); }
+      busy(btn, true, 'กำลังส่ง…');
+      try {
+        await api('/api/me/scan-requests', {
+          date, shift_id: sheet.querySelector('[name=frShift]:checked').value,
+          in_time: wantIn ? getT('in') : '', out_time: wantOut ? getT('out') : '',
+          reason: sheet.querySelector('#frReason').value.trim(), evidence,
+        });
+        closeSheet();
+        toast('ส่งคำขอแล้ว รอผู้ดูแลตรวจสอบ ผลจะแจ้งที่กระดิ่ง 🔔');
+        if (document.getElementById('frBody')) renderForgot(forgotMonth);
+        else if (current === 'cal') renderCalendar(calMonth);
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
+  }
+
   function openDay(d) {
     const otRows = d.ot_detail.map((o) => `<li>OT ${esc(o.type)} · ${esc(o.start)}–${esc(o.end)} น. = <b>${o.hours} ชม.</b></li>`).join('');
     const canAppeal = d.color === 'red' && d.appeal?.status !== 'pending';
@@ -1362,6 +1631,7 @@
       </dl>
       ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul></div>` : ''}
       ${otRows ? `<div class="ot-box"><b>เวลาทำงานเกิน (คิดเป็น OT ได้)</b><ul>${otRows}</ul><small>ถ้าทำ OT จริง ต้องกดขอ OT เอง</small><button class="btn primary sm" id="askOt" style="margin-top:8px">ขอ OT ของวันนี้</button></div>` : ''}
+      ${!(d.checkin && d.checkout) && d.date <= todayTHStr() ? `<button class="btn primary big fr-open-btn" id="frFromDay">📝 ลืมสแกน? ขอบันทึกเวลาวันนี้</button>` : ''}
       ${d.appeal ? `<div class="appeal-box"><b>คำร้องของคุณ:</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>
         ${d.appeal.review_note ? `<div class="sub">ผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}</div>` : ''}
       ${canAppeal ? `
@@ -1374,6 +1644,7 @@
         </form>` : ''}
       <button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>`);
     el.querySelector('#askOt')?.addEventListener('click', () => { otDate = d.date; go('ot'); });
+    el.querySelector('#frFromDay')?.addEventListener('click', () => { closeSheet(); openForgotForm(d.date); });
     const f = el.querySelector('#apf');
     if (!f) return;
     f.onsubmit = async (e) => {
@@ -1538,7 +1809,7 @@
 
   // ส่งสัญญาณ "ออนไลน์" ให้ผู้ดูแลเห็น: ทุก 5 นาทีขณะเปิดแอปอยู่ และทุกครั้งที่กลับมาที่แอป
   let beatTimer = null;
-  const heartbeat = () => { if (token && !document.hidden) api('/api/me').then((d) => { const changed = d.employee.avatar !== me.avatar; me = d.employee; store.set('emp_profile', me); if (changed) refreshWho(); }).catch(() => {}); };
+  const heartbeat = () => { if (token && !document.hidden) api('/api/me').then((d) => { const changed = d.employee.avatar !== me.avatar; me = d.employee; store.set('emp_profile', me); if (changed) refreshWho(); setUnread(d.notif_unread || 0); }).catch(() => {}); };
   document.addEventListener('visibilitychange', () => { if (!document.hidden) heartbeat(); });
 
   function startApp() {
@@ -1552,7 +1823,7 @@
     startApp();
     // ตรวจสอบบัญชีเบื้องหลัง (ถ้าออฟไลน์ก็ยังใช้งานค้างไว้ได้)
     // ถ้าผู้ดูแลแก้รหัส/เบอร์ให้ แอปจะอัปเดตเอง (รวมรหัสที่เติมไว้หน้าเข้าสู่ระบบ)
-    api('/api/me').then((d) => { const changed = d.employee.avatar !== me.avatar; me = d.employee; store.set('emp_profile', me); store.set('last_emp_code', me.emp_code); authLayout(false); if (changed) refreshWho(); }).catch(() => {});
+    api('/api/me').then((d) => { const changed = d.employee.avatar !== me.avatar; me = d.employee; store.set('emp_profile', me); store.set('last_emp_code', me.emp_code); authLayout(false); if (changed) refreshWho(); setUnread(d.notif_unread || 0); }).catch(() => {});
   } else {
     renderLogin();
   }

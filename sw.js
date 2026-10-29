@@ -1,5 +1,5 @@
 // Service worker: เปิดแอปได้เร็ว (ใช้เน็ตก่อน ถ้าออฟไลน์ใช้ไฟล์ที่เก็บไว้)
-const CACHE = 'checkin-v18';
+const CACHE = 'checkin-v19';
 const SHELL = ['./', 'index.html', 'style.css', 'config.js', 'transport.js', 'guard.js', 'app.js', 'icon.svg', 'icon-192.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

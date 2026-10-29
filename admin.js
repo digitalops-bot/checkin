@@ -21,6 +21,7 @@
     flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
     pin: '<path d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>',
+    note: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/>',
   };
   const icon = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
 
@@ -29,9 +30,9 @@
   const pad = (n) => String(n).padStart(2, '0');
   // ช่องเลือกวันที่แบบไทย (วัน / เดือน / ปี พ.ศ.) แทน input type=date ที่แสดงตามภาษาเครื่อง (เดือน/วัน/ปี ค.ศ.)
   // ช่องเวลาแบบ 24 ชั่วโมง (ชั่วโมง : นาที) แทน input type=time ที่แสดง AM/PM ตามภาษาเครื่อง
-  const time24Input = (name, value) => {
+  const time24Input = (name, value, step = 5) => {
     const [h, m] = (value || '00:00').split(':');
-    const mins = [...new Set([...Array.from({ length: 12 }, (_, i) => pad(i * 5)), m])].sort();
+    const mins = [...new Set([...Array.from({ length: 60 / step }, (_, i) => pad(i * step)), m])].sort();
     return `<span class="time24" data-name="${name}">
       <select data-p="h" aria-label="ชั่วโมง">${Array.from({ length: 24 }, (_, i) => `<option${pad(i) === h ? ' selected' : ''}>${pad(i)}</option>`).join('')}</select>
       <b>:</b>
@@ -194,6 +195,7 @@
     { id: 'map', label: 'แผนที่การลงเวลา', icon: 'pin' },
     { id: 'cal', label: 'ปฏิทินพนักงาน', icon: 'cal' },
     { id: 'appeal', label: 'คำร้อง', icon: 'flag' },
+    { id: 'scanreq', label: 'ลืมสแกน', icon: 'note' },
     { id: 'ot', label: 'คำขอ OT', icon: 'ot' },
     { id: 'sum', label: 'สรุปรายคน', icon: 'sum' },
     { id: 'emp', label: 'พนักงาน', icon: 'users' },
@@ -210,7 +212,7 @@
       <div class="shell">
         <aside class="side">
           <div class="brand"><img src="icon.svg" alt=""><div><b>ระบบลงเวลา</b><small>ผู้ดูแล · พนักงานนอก</small></div></div>
-          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
+          ${PAGES.map((p) => `<button class="nav-btn" data-page="${p.id}">${icon(p.icon)}<span>${p.label}</span>${p.id === 'ot' ? '<span class="count" id="pendingCount" hidden></span>' : ''}${p.id === 'appeal' ? '<span class="count" id="appealCount" hidden></span>' : ''}${p.id === 'scanreq' ? '<span class="count" id="srCount" hidden></span>' : ''}${p.id === 'emp' ? '<span class="count" id="regCount" hidden></span>' : ''}</button>`).join('')}
           <div class="spacer"></div>
           <div class="who-admin" title="${esc(ME.username)}">${ME.role === 'owner' ? '👑' : '👤'} <span>${esc(ME.name)}</span></div>
           <button class="nav-btn" id="reloadBtn">${icon('refresh')}<span>รีเฟรช</span></button>
@@ -232,14 +234,14 @@
   }
   const setPending = (n) => setCount('pendingCount', n);
   // อัปเดตตัวเลขคำขอ OT / คำร้องที่รอพิจารณาบนเมนู
-  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); setCount('regCount', (d.registrations || 0) + (d.code_requests || 0)); }).catch(() => {});
+  const refreshCounts = () => api('/api/admin/dashboard').then((d) => { setPending(d.pending); setCount('appealCount', d.appeals); setCount('regCount', (d.registrations || 0) + (d.code_requests || 0)); setCount('srCount', d.scan_requests || 0); }).catch(() => {});
 
   function go(id) {
     page = id;
     clearInterval(dashTimer);
     root.querySelectorAll('[data-page]').forEach((b) => b.classList.toggle('active', b.dataset.page === id));
     history.replaceState(null, '', '#' + id);
-    ({ dash: pageDash, att: pageAtt, map: pageMap, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
+    ({ dash: pageDash, att: pageAtt, map: pageMap, scanreq: pageScanReq, cal: pageCal, appeal: pageAppeal, ot: pageOT, sum: pageSum, emp: pageEmp, set: pageSet })[id]();
     if (id !== 'dash') refreshCounts();
   }
   const content = () => document.getElementById('content');
@@ -337,14 +339,16 @@
     gps_suspicious: 'พิกัดผิดปกติ (อาจใช้แอปปลอมตำแหน่ง)',
     desktop_device: 'ลงเวลาจากคอมพิวเตอร์',
     overnight: 'เช็คเอ้าท์ข้ามวัน',
-    gps_static: 'สงสัยปลอมตำแหน่ง: พิกัดนิ่งสนิทผิดธรรมชาติ',
+    manual_entry: 'บันทึกจากคำขอลืมสแกน (ผู้ดูแลอนุมัติ)',
+    gps_static: 'พิกัดคงที่ระหว่างสแกน (ปกติเมื่อยืนนิ่งหรืออยู่ในอาคาร)',
     gps_jump: 'สงสัยปลอมตำแหน่ง: พิกัดกระโดดระหว่างสแกน',
     gps_teleport: 'สงสัยปลอมตำแหน่ง: ย้ายที่เร็วเกินจริงจากครั้งก่อน',
     gps_shared: 'สงสัยปลอมตำแหน่ง: พิกัดซ้ำกับพนักงานคนอื่น',
   };
-  const INFO_FLAGS = new Set(['overnight', 'location_unverified']);
+  const INFO_FLAGS = new Set(['overnight', 'location_unverified', 'manual_entry', 'gps_static']);
   const flagsOf = (r) => { try { return JSON.parse(r?.flags || '[]'); } catch { return []; } };
-  const warnsOf = (r) => flagsOf(r).filter((f) => !INFO_FLAGS.has(f));
+  // ผู้ดูแลยืนยันว่าตรวจแล้วถูกต้อง → ไม่นับเป็นข้อสงสัย
+  const warnsOf = (r) => (r?.review_ok ? [] : flagsOf(r).filter((f) => !INFO_FLAGS.has(f)));
   const timeOf = (r) => (r.captured_at ? new Date(r.captured_at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false }) : r.time);
 
   // ---------- attendance table ----------
@@ -353,12 +357,13 @@
     if (!rec) return '<div class="tcell"><span class="thumb none">–</span><span class="muted">ไม่มี</span></div>';
     const w = warnsOf(rec);
     // บน Google ไม่โหลดรูปเต็มทุกแถว (ช้า/กินโควตา) — ดูรูปได้เมื่อคลิกแถว
-    const pic = rec.thumb ? `<img class="thumb" src="${esc(rec.thumb)}" alt="" draggable="false">`
+    const pic = !rec.photo ? '<span class="thumb none" title="บันทึกจากคำขอลืมสแกน">📝</span>'
+      : rec.thumb ? `<img class="thumb" src="${esc(rec.thumb)}" alt="" draggable="false">`
       : Backend.mode === 'gas' ? '<span class="thumb none" title="คลิกแถวเพื่อดูรูป">📷</span>'
         : `<canvas class="thumb" data-photo="${esc(rec.photo)}"></canvas>`;
     return `<div class="tcell">${pic}
       <div><div class="t-time">${esc(timeOf(rec))} น.</div>
-      ${w.length ? `<span class="badge flag" title="${esc(w.map((f) => FLAG_TH[f] || f).join(', '))}">⚠ ตรวจสอบ ${w.length}</span>` : rec.verify_code ? '<span class="badge approved">✓ ผ่าน</span>' : '<div class="sub">ข้อมูลเดิม</div>'}
+      ${w.length ? `<span class="badge flag" title="${esc(w.map((f) => FLAG_TH[f] || f).join(', '))}">⚠ ตรวจสอบ ${w.length}</span>` : rec.review_ok ? '<span class="badge approved" title="ผู้ดูแลตรวจแล้วว่าถูกต้อง">✓ ตรวจแล้ว</span>' : rec.verify_code ? '<span class="badge approved">✓ ผ่าน</span>' : !rec.photo ? '<span class="badge pending">📝 ลืมสแกน</span>' : '<div class="sub">ข้อมูลเดิม</div>'}
       </div></div>`;
   }
   function attTable(pairs, { showDate = true } = {}) {
@@ -402,10 +407,12 @@
         <dt>พิกัด</dt><dd>${map}</dd>
         ${rec.verify_code ? `<dt>รหัสตรวจสอบ</dt><dd><b class="mono">${esc(rec.verify_code)}</b> <span class="sub">ต้องตรงกับในรูป</span></dd>` : ''}
         ${rec.face_ratio != null ? `<dt>ตรวจใบหน้า</dt><dd>พบใบหน้า ${Math.round(rec.face_ratio * 100)}% ของเวลาสแกน</dd>` : ''}
-        <dt>ข้อสังเกต</dt><dd>${flags.length ? flags.map((f) => `<span class="badge ${INFO_FLAGS.has(f) ? 'pending' : 'flag'}">${esc(FLAG_TH[f] || f)}</span>`).join(' ') : rec.verify_code ? '<span class="badge approved">ไม่พบความผิดปกติ</span>' : '<span class="muted">ข้อมูลก่อนมีระบบสแกน</span>'}</dd>
+        <dt>ข้อสังเกต</dt><dd>${flags.length ? flags.map((f) => `<span class="badge ${INFO_FLAGS.has(f) || rec.review_ok ? 'pending' : 'flag'}">${esc(FLAG_TH[f] || f)}</span>`).join(' ') : rec.verify_code ? '<span class="badge approved">ไม่พบความผิดปกติ</span>' : rec.photo ? '<span class="muted">ข้อมูลก่อนมีระบบสแกน</span>' : '<span class="muted">–</span>'}
+          ${rec.review_ok ? `<div class="review-ok">✓ ตรวจแล้วว่าถูกต้อง โดย <b>${esc(rec.review_ok)}</b>${rec.review_ok_at ? ` · ${esc(thDateTime(rec.review_ok_at))}` : ''} <button type="button" class="linkbtn" data-unok="${rec.id}" data-wd="${esc(rec.work_date)}">ยกเลิก</button></div>`
+            : flags.some((f) => !INFO_FLAGS.has(f)) ? `<div><button type="button" class="btn ok sm" data-ok="${rec.id}" data-wd="${esc(rec.work_date)}">✓ ตรวจแล้ว ข้อมูลถูกต้อง</button><div class="sub">กดเมื่อตรวจรูปและพิกัดแล้วไม่พบความผิดปกติ ระบบจะเลิกนับเป็นข้อสงสัย</div></div>` : ''}</dd>
         ${rec.ip ? `<dt>IP</dt><dd class="mono">${esc(rec.ip)}</dd>` : ''}
         ${rec.device ? `<dt>อุปกรณ์</dt><dd class="sub">${esc(rec.device)}</dd>` : ''}</dl>
-        <canvas class="detail-photo" data-photo="${esc(rec.photo)}" data-fit="contain" data-open="${esc(rec.photo)}"></canvas>
+        ${rec.photo ? `<canvas class="detail-photo" data-photo="${esc(rec.photo)}" data-fit="contain" data-open="${esc(rec.photo)}"></canvas>` : '<div class="no-photo">📝 ไม่มีรูปสแกน — บันทึกจากคำขอลืมสแกนที่ผู้ดูแลอนุมัติ (ดูหลักฐานได้ที่เมนู "ลืมสแกน")</div>'}
       </div>`;
     };
     const extras = p.records.filter((r) => r !== p.checkin && r !== p.checkout);
@@ -417,12 +424,23 @@
         <b>รายการทั้งหมดของวันนี้ (${p.records.length})</b>
         <div class="table-wrap"><table><tbody>${p.records.map((r) => `
           <tr><td><span class="badge ${r.type}">${r.type === 'in' ? 'เช็คอิน' : 'เช็คเอ้าท์'}</span></td><td>${esc(timeOf(r))} น.</td><td>${esc(r.location)}</td>
-          <td><a href="#" data-open="${esc(r.photo)}">ดูรูป</a></td>
+          <td>${r.photo ? `<a href="#" data-open="${esc(r.photo)}">ดูรูป</a>` : '<span class="sub">ลืมสแกน</span>'}</td>
           <td class="act"><button class="btn danger sm" data-del="${r.id}">ลบ</button></td></tr>`).join('')}</tbody></table></div>
         ${extras.length ? `<p class="sub">มีรายการซ้ำ ${extras.length} รายการ — ระบบใช้เวลาเข้าเร็วสุดและเวลาออกช้าสุด</p>` : ''}
       </div>`, 'protect');
     hydratePhotos(modalBody);
     modalBody.querySelectorAll('[data-open]').forEach((el) => (el.onclick = (e) => { e.preventDefault(); showPhoto(el.dataset.open); }));
+    const setOk = async (id, wd, ok) => {
+      try {
+        const r = await api(`/api/admin/attendance/${id}`, { method: 'PATCH', body: { review_ok: ok, work_date: wd } });
+        p.records.forEach((x) => { if (String(x.id) === String(id)) { x.review_ok = r.review_ok; x.review_ok_at = ok ? new Date().toISOString() : ''; } });
+        toast(ok ? 'บันทึกแล้ว: ตรวจแล้วว่าข้อมูลถูกต้อง' : 'ยกเลิกการยืนยันแล้ว');
+        attDetail(p, reload);
+        reload();
+      } catch (err) { toast(err.message, true); }
+    };
+    modalBody.querySelectorAll('[data-ok]').forEach((b) => (b.onclick = () => { if (confirm('ยืนยันว่าตรวจรูปและพิกัดแล้ว ข้อมูลถูกต้อง ไม่มีความผิดปกติ?')) setOk(b.dataset.ok, b.dataset.wd, true); }));
+    modalBody.querySelectorAll('[data-unok]').forEach((b) => (b.onclick = () => setOk(b.dataset.unok, b.dataset.wd, false)));
     modalBody.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
       if (!confirm('ลบรายการนี้และรูปถ่าย? ไม่สามารถกู้คืนได้')) return;
       try { await api(`/api/admin/attendance/${b.dataset.del}`, { method: 'DELETE' }); toast('ลบแล้ว'); closeModal(); reload(); }
@@ -440,6 +458,7 @@
         setPending(d.pending);
         setCount('appealCount', d.appeals);
         setCount('regCount', (d.registrations || 0) + (d.code_requests || 0));
+        setCount('srCount', d.scan_requests || 0);
         const checkedIn = d.pairs.filter((p) => p.checkin).length;
         const noOut = d.pairs.filter((p) => p.status === 'no_checkout').length;
         const done = d.pairs.filter((p) => p.status === 'complete').length;
@@ -453,11 +472,13 @@
             <div class="card stat ot"><div class="k">OT รออนุมัติ</div><div class="v">${d.pending}</div></div>
             <button class="card stat map-stat" id="openMap" type="button"><div class="k">${icon('pin')}แผนที่การลงเวลา</div><div class="v">${d.pairs.reduce((n, p) => n + p.records.filter((r) => r.lat !== null && r.lat !== '' && r.lat !== undefined).length, 0)}</div><div class="sub">จุดสแกนวันนี้ · กดเพื่อเปิดแผนที่ →</div></button>
             <div class="card stat out"><div class="k">คำร้องรอพิจารณา</div><div class="v">${d.appeals || 0}</div></div>
+            <button class="card stat map-stat" id="openSr" type="button"><div class="k">${icon('note')}ลืมสแกน รอตรวจ</div><div class="v">${d.scan_requests || 0}</div><div class="sub">คำขอบันทึกเวลาย้อนหลัง · กดเพื่อตรวจ →</div></button>
           </div>
           <h2 class="section-title">การลงเวลาวันนี้</h2>
           <div id="tbl">${attTable(d.pairs, { showDate: false })}</div>`;
         document.getElementById('rf').onclick = load;
         document.getElementById('openMap').onclick = () => { mapState.date = d.today; go('map'); };
+        document.getElementById('openSr').onclick = () => go('scanreq');
         bindAttTable(c, load);
       } catch (err) { toast(err.message, true); }
     };
@@ -583,6 +604,114 @@
     document.getElementById('mapRf').onclick = load;
     setTimeout(() => mapObj && mapObj.invalidateSize(), 50);
     await load();
+  }
+
+  // ---------- ลืมสแกน: ตรวจคำขอบันทึกเวลาย้อนหลัง ----------
+  const SR_TH = { pending: 'รอตรวจสอบ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ' };
+  const srTimes = (i, o) => [i && `เข้า ${esc(i)}`, o && `ออก ${esc(o)}`].filter(Boolean).join(' · ') || '–';
+  function pageScanReq() {
+    const c = content();
+    c.innerHTML = `<div class="page-head"><div><h1>ลืมสแกน</h1><p>คำขอบันทึกเวลาย้อนหลังจากพนักงาน · ตรวจรูปหลักฐานแล้วกดอนุมัติ (แก้เวลาได้) หรือไม่อนุมัติพร้อมเหตุผล · ผลจะแจ้งพนักงานในแอปอัตโนมัติ</p></div></div>
+      ${filterBar({ status: true })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
+    let items = [];
+    const load = async () => {
+      try {
+        // คำขอที่รอตรวจแสดงเสมอ แม้อยู่นอกช่วงวันที่ที่เลือก
+        const [inRange, pend] = await Promise.all([
+          api(`/api/admin/scan-requests?${qs()}`),
+          filter.status && filter.status !== 'pending' ? Promise.resolve({ items: [] }) : api('/api/admin/scan-requests?status=pending'),
+        ]);
+        const seen = new Set();
+        items = [...pend.items, ...inRange.items].filter((r) => (seen.has(r.id) ? false : seen.add(r.id)));
+        const t = document.getElementById('tbl');
+        if (!t) return;
+        refreshCounts();
+        if (!items.length) { t.innerHTML = '<div class="card empty">ไม่มีคำขอลืมสแกนในช่วงนี้</div>'; return; }
+        t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
+          <thead><tr><th>วันที่ทำงาน</th><th>ชื่อ</th><th>กะ</th><th>ขอบันทึก</th><th>สแกนจริงตอนนี้</th><th>หลักฐาน</th><th>เหตุผล</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+          <tbody>${items.map((r) => `<tr class="${r.status === 'pending' ? 'row-pending' : ''}">
+            <td class="nowrap">${esc(thDate(r.work_date))}<div class="sub">ส่ง ${esc(thDateTime(r.created_at))}</div></td>
+            <td>${nameCell(r.employee_id, r.name, r.emp_code)}</td>
+            <td class="nowrap">${esc(r.shift_name || '-')}</td>
+            <td class="nowrap t-time">${srTimes(r.req_in, r.req_out)}${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">บันทึกจริง ${srTimes(r.approved_in, r.approved_out)}</div>` : ''}</td>
+            <td class="nowrap">${srTimes(r.now_in, r.now_out)}</td>
+            <td>${r.evidence ? `<button type="button" class="btn ghost sm" data-evi="${esc(r.evidence)}">📎 ดูรูป</button>` : '–'}</td>
+            <td>${esc(r.reason) || '<span class="muted">–</span>'}${r.review_note ? `<div class="sub"><b>ผู้ดูแล${r.reviewed_by ? ` (${esc(r.reviewed_by)})` : ''}:</b> ${esc(r.review_note)}</div>` : r.reviewed_by ? `<div class="sub">โดย ${esc(r.reviewed_by)}</div>` : ''}</td>
+            <td><span class="badge ${r.status}">${SR_TH[r.status]}</span></td>
+            <td><div class="act">${r.status === 'pending' ? `<button class="btn ok sm" data-srok="${r.id}">ตรวจ/อนุมัติ</button><button class="btn danger sm" data-srno="${r.id}">ไม่อนุมัติ</button>` : '<span class="sub">พิจารณาแล้ว</span>'}</div></td>
+          </tr>`).join('')}</tbody></table></div>
+          <div class="table-foot"><span>${items.length} รายการ · รอตรวจ ${items.filter((r) => r.status === 'pending').length}</span><span class="sub">อนุมัติแล้ว ระบบบันทึกเวลาลงการลงเวลาให้อัตโนมัติ (ไม่มีรูปสแกน)</span></div></div>`;
+        t.querySelectorAll('[data-evi]').forEach((b) => (b.onclick = () => showPhoto(b.dataset.evi)));
+        t.querySelectorAll('[data-srok]').forEach((b) => (b.onclick = () => srApprove(items.find((x) => String(x.id) === b.dataset.srok), load)));
+        t.querySelectorAll('[data-srno]').forEach((b) => (b.onclick = () => srReject(items.find((x) => String(x.id) === b.dataset.srno), load)));
+      } catch (err) { toast(err.message, true); }
+    };
+    bindFilter(load);
+    load();
+  }
+  const srHeader = (r) => `
+    <div class="name-cell" style="margin:0 40px 10px 0">${avTag(r.employee_id, r.name, 'lg')}<div><b>${esc(r.name)}</b><div class="sub">รหัส ${esc(r.emp_code)}</div></div></div>
+    <div class="del-info">วันที่ทำงาน <b>${esc(thDate(r.work_date))}</b> · ${esc(r.shift_name || '-')} · ยื่นเมื่อ ${esc(thDateTime(r.created_at))}<br>
+      ขอบันทึก <b>${srTimes(r.req_in, r.req_out)}</b> น. · สแกนจริงตอนนี้ ${srTimes(r.now_in, r.now_out)}<br>
+      เหตุผล: ${esc(r.reason) || '<span class="muted">(ไม่ได้ระบุ)</span>'}</div>
+    ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>` : ''}`;
+  function srApprove(r, reload) {
+    openModal(`<h2 style="margin:0 40px 10px 0">ตรวจคำขอลืมสแกน</h2>${srHeader(r)}
+      <form id="srf" class="del-form" style="margin-top:12px">
+        <div class="sr-times">
+          ${r.req_in ? `<div class="field"><span class="field-label">เวลาเข้างานที่จะบันทึก</span>${time24Input('sin', r.req_in, 1)}</div>` : ''}
+          ${r.req_out ? `<div class="field"><span class="field-label">เวลาออกงานที่จะบันทึก</span>${time24Input('sout', r.req_out, 1)}</div>` : ''}
+        </div>
+        <p class="sub">ตรงกับหลักฐานแล้ว กด "อนุมัติ" ได้เลย · ถ้าไม่ตรง แก้เวลาก่อนอนุมัติ</p>
+        <label class="field"><span>หมายเหตุถึงพนักงาน <small>(ไม่บังคับ)</small></span><textarea name="note" rows="2" maxlength="300"></textarea></label>
+        <div class="row"><button type="submit" class="btn ok" id="srOk">อนุมัติ</button><button type="button" class="btn danger" id="srToNo">ไม่อนุมัติ</button><button type="button" class="btn ghost" id="srCancel">ยกเลิก</button></div>
+      </form>`, 'protect');
+    hydratePhotos(modalBody);
+    modalBody.querySelectorAll('[data-open]').forEach((el) => (el.onclick = () => showPhoto(el.dataset.open)));
+    const f = document.getElementById('srf');
+    document.getElementById('srCancel').onclick = closeModal;
+    document.getElementById('srToNo').onclick = () => srReject(r, reload);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('srOk');
+      btn.disabled = true;
+      try {
+        const body = { status: 'approved', review_note: f.note.value.trim() };
+        if (r.req_in) body.in_time = readTime24(f, 'sin');
+        if (r.req_out) body.out_time = readTime24(f, 'sout');
+        const res = await api(`/api/admin/scan-requests/${r.id}`, { method: 'PATCH', body });
+        closeModal();
+        toast(`อนุมัติแล้ว บันทึก ${srTimes(res.approved_in, res.approved_out)} น. และแจ้งพนักงานแล้ว`);
+        reload();
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
+    };
+  }
+  function srReject(r, reload) {
+    const REASONS = ['ไม่มีหลักฐานยืนยันเวลา', 'เวลาไม่ตรงกับใบลงเวลา', 'รูปหลักฐานไม่ชัด กรุณาส่งใหม่', 'ไม่ได้มาทำงานวันนั้น'];
+    openModal(`<h2 style="margin:0 40px 10px 0">ไม่อนุมัติคำขอลืมสแกน</h2>${srHeader(r)}
+      <form id="srnf" class="del-form" style="margin-top:12px">
+        <div class="reason-chips">${REASONS.map((x) => `<button type="button" class="btn ghost sm" data-r="${esc(x)}">${esc(x)}</button>`).join('')}</div>
+        <label class="field"><span>เหตุผล <b class="bad">*</b> <small>พนักงานจะเห็นข้อความนี้</small></span><textarea name="note" rows="3" maxlength="300" required></textarea></label>
+        <div class="row"><button type="submit" class="btn danger" id="srNo">ยืนยันไม่อนุมัติ</button><button type="button" class="btn ghost" id="srCancel2">ยกเลิก</button></div>
+      </form>`, 'protect');
+    hydratePhotos(modalBody);
+    modalBody.querySelectorAll('[data-open]').forEach((el) => (el.onclick = () => showPhoto(el.dataset.open)));
+    const f = document.getElementById('srnf');
+    f.querySelectorAll('[data-r]').forEach((b) => (b.onclick = () => { f.note.value = b.dataset.r; f.note.focus(); }));
+    document.getElementById('srCancel2').onclick = closeModal;
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const note = f.note.value.trim();
+      if (note.length < 2) return toast('กรุณาใส่เหตุผล', true);
+      const btn = document.getElementById('srNo');
+      btn.disabled = true;
+      try {
+        await api(`/api/admin/scan-requests/${r.id}`, { method: 'PATCH', body: { status: 'rejected', review_note: note } });
+        closeModal();
+        toast('ไม่อนุมัติแล้ว และแจ้งเหตุผลให้พนักงานแล้ว');
+        reload();
+      } catch (err) { toast(err.message, true); btn.disabled = false; }
+    };
   }
 
   function pageAtt() {
