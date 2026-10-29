@@ -635,7 +635,7 @@
             <td class="nowrap">${esc(r.shift_name || '-')}</td>
             <td class="nowrap t-time">${srTimes(r.req_in, r.req_out)}${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">บันทึกจริง ${srTimes(r.approved_in, r.approved_out)}</div>` : ''}</td>
             <td class="nowrap">${srTimes(r.now_in, r.now_out)}</td>
-            <td>${r.evidence ? `<button type="button" class="btn ghost sm" data-evi="${esc(r.evidence)}">📎 ดูรูป</button>` : '–'}</td>
+            <td>${r.evidence ? `<button type="button" class="btn ghost sm" data-evi="${esc(r.evidence)}">📎 ดูรูป</button>` : '<span class="badge pending" title="พนักงานไม่ได้แนบรูปหลักฐาน">ไม่มีหลักฐาน</span>'}</td>
             <td>${esc(r.reason) || '<span class="muted">–</span>'}${r.review_note ? `<div class="sub"><b>ผู้ดูแล${r.reviewed_by ? ` (${esc(r.reviewed_by)})` : ''}:</b> ${esc(r.review_note)}</div>` : r.reviewed_by ? `<div class="sub">โดย ${esc(r.reviewed_by)}</div>` : ''}</td>
             <td><span class="badge ${r.status}">${SR_TH[r.status]}</span></td>
             <td><div class="act">${r.status === 'pending' ? `<button class="btn ok sm" data-srok="${r.id}">ตรวจ/อนุมัติ</button><button class="btn danger sm" data-srno="${r.id}">ไม่อนุมัติ</button>` : '<span class="sub">พิจารณาแล้ว</span>'}</div></td>
@@ -654,7 +654,7 @@
     <div class="del-info">วันที่ทำงาน <b>${esc(thDate(r.work_date))}</b> · ${esc(r.shift_name || '-')} · ยื่นเมื่อ ${esc(thDateTime(r.created_at))}<br>
       ขอบันทึก <b>${srTimes(r.req_in, r.req_out)}</b> น. · สแกนจริงตอนนี้ ${srTimes(r.now_in, r.now_out)}<br>
       เหตุผล: ${esc(r.reason) || '<span class="muted">(ไม่ได้ระบุ)</span>'}</div>
-    ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>` : ''}`;
+    ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>` : '<div class="no-photo">⚠ พนักงานไม่ได้แนบรูปหลักฐาน — ตรวจสอบกับหัวหน้างานหรือใบลงเวลาก่อนอนุมัติ</div>'}`;
   function srApprove(r, reload) {
     openModal(`<h2 style="margin:0 40px 10px 0">ตรวจคำขอลืมสแกน</h2>${srHeader(r)}
       <form id="srf" class="del-form" style="margin-top:12px">

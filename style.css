@@ -415,3 +415,11 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 }
 /* จอแคบ: มีกระดิ่ง+รีเฟรชแล้ว ซ่อนรหัสพนักงานบนแถบบน (ดูได้ในหน้าโปรไฟล์) */
 @media (max-width: 420px) { .appbar .user { display: none; } .appbar .bell-btn { margin-left: auto; } }
+
+.fr-nowarn { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: #fff4e5; border: 1.5px solid #f0a34a; color: #6b3a00; }
+.fr-nowarn p { margin: 6px 0 10px; font-size: 14px; line-height: 1.5; }
+.fr-nowarn-act { display: flex; flex-wrap: wrap; gap: 8px; }
+.fr-nowarn-act .btn { flex: 1 1 140px; }
+.fr-manual { margin: 10px 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); font-size: 14px; }
+.cal-day .m { white-space: nowrap; }
+@media (prefers-color-scheme: dark) { .fr-nowarn { background: #3a2a10; color: #ffd59a; } }

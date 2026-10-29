@@ -1315,7 +1315,7 @@
     const lead = new Date(`${days[0].date}T12:00:00Z`).getUTCDay();
     const today = serverNow().toLocaleDateString('en-CA', { timeZone: TZ });
     const otTotal = s.ot['1.5'] + s.ot['2'] + s.ot['3'];
-    const mark = (d) => (d.appeal?.status === 'pending' ? '⏳' : d.color === 'excused' ? '✓' : d.status === 'holiday_work' ? 'OT' : d.color === 'red' ? '!' : d.color === 'green' ? '✓' : '');
+    const mark = (d) => (d.appeal?.status === 'pending' ? '⏳' : d.manual ? '📝' : d.color === 'excused' ? '✓' : d.status === 'holiday_work' ? 'OT' : d.color === 'red' ? '!' : d.color === 'green' ? '✓' : '');
     document.getElementById('calBody').innerHTML = `
       <div class="cal-stats">
         <div><b>${s.work}</b><small>วันทำงาน</small></div>
@@ -1558,13 +1558,18 @@
         ${needOut ? `<div class="fr-time"><label class="fr-check"><input type="checkbox" id="wantOut" checked> ลืมสแกน<b>ออกงาน</b></label>${timeSel('out', shift0.end)}</div>` : ''}
         <p class="hint">ระบบใส่เวลาตามกะให้ ถ้าไม่ตรงกับเวลาจริง แก้ตัวเลขได้</p>
       </div>
-      <div class="field"><span class="field-label">หลักฐาน <b class="bad">*</b> <small>รูปใบลงเวลา / ใบเซ็นชื่อ / เอกสารยืนยัน</small></span>
+      <div class="field"><span class="field-label">หลักฐาน <small>(แนะนำ) รูปใบลงเวลา / ใบเซ็นชื่อ / เอกสารยืนยัน</small></span>
         <div class="fr-evi">
           <label class="btn ghost"><input type="file" accept="image/*" capture="environment" id="frCam" hidden>📷 ถ่ายรูปใบลงเวลา</label>
           <label class="btn ghost"><input type="file" accept="image/*" id="frFile" hidden>📎 เลือกรูปจากเครื่อง</label>
         </div>
         <img id="frPreview" class="fr-preview" alt="" hidden>
-        <em class="err" id="frEviErr" hidden>กรุณาแนบรูปหลักฐาน</em></div>
+        <p class="hint">แนะนำให้แนบรูปใบลงเวลาของวันที่ขอ จะช่วยให้ผู้ดูแลอนุมัติได้ง่ายขึ้น</p>
+        <div class="fr-nowarn" id="frNoEvi" hidden>
+          <b>⚠ ยังไม่ได้แนบรูปหลักฐาน</b>
+          <p>การไม่แนบหลักฐานอาจทำให้คำขอ<b>ถูกปฏิเสธ</b>ได้ ถ้ามีรูปใบลงเวลาของวันที่ขอ แนะนำให้แนบไปด้วยจะดีมาก</p>
+          <div class="fr-nowarn-act"><button type="button" class="btn primary" id="frGoAttach">กลับไปแนบรูป</button><button type="button" class="btn ghost" id="frSendAnyway">ส่งโดยไม่แนบ</button></div>
+        </div></div>
       <label class="field"><span>เหตุผลที่ลืมสแกน <small>(ไม่บังคับ)</small></span><textarea id="frReason" maxlength="300" rows="2" placeholder="เช่น โทรศัพท์แบตหมด / ลืมกดสแกน"></textarea></label>
       <button class="btn primary big" id="frSend">ส่งคำขอ</button>
       <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>`;
@@ -1589,17 +1594,24 @@
         const pv = sheet.querySelector('#frPreview');
         pv.src = evidence;
         pv.hidden = false;
-        sheet.querySelector('#frEviErr').hidden = true;
+        sheet.querySelector('#frNoEvi').hidden = true;
       } catch (err) { toast(err.message, true); }
     };
     sheet.querySelector('#frCam').onchange = (e) => onFile(e.target);
     sheet.querySelector('#frFile').onchange = (e) => onFile(e.target);
-    sheet.querySelector('#frSend').onclick = async (e) => {
-      const btn = e.currentTarget;
+    const send = async (allowNoEvidence) => {
+      const btn = sheet.querySelector('#frSend');
       const wantIn = needIn && sheet.querySelector('#wantIn').checked;
       const wantOut = needOut && sheet.querySelector('#wantOut').checked;
       if (!wantIn && !wantOut) return toast('กรุณาเลือกอย่างน้อย 1 รายการที่ลืมสแกน', true);
-      if (!evidence) { sheet.querySelector('#frEviErr').hidden = false; return toast('กรุณาแนบรูปหลักฐาน (ถ่ายรูปใบลงเวลา หรือเลือกรูป)', true); }
+      // ไม่บังคับแนบหลักฐาน แต่เตือนก่อนส่ง
+      if (!evidence && !allowNoEvidence) {
+        const w = sheet.querySelector('#frNoEvi');
+        w.hidden = false;
+        w.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      sheet.querySelector('#frNoEvi').hidden = true;
       busy(btn, true, 'กำลังส่ง…');
       try {
         await api('/api/me/scan-requests', {
@@ -1613,6 +1625,9 @@
         else if (current === 'cal') renderCalendar(calMonth);
       } catch (err) { toast(err.message, true); busy(btn, false); }
     };
+    sheet.querySelector('#frSend').onclick = () => send(false);
+    sheet.querySelector('#frSendAnyway').onclick = () => send(true);
+    sheet.querySelector('#frGoAttach').onclick = () => { sheet.querySelector('#frNoEvi').hidden = true; sheet.querySelector('.fr-evi').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   }
 
   function openDay(d) {
@@ -1629,6 +1644,7 @@
         <dt>สแกนออกงาน</dt><dd>${d.checkout ? `${esc(d.checkout)} น.${d.calc_out && d.calc_out !== d.checkout ? ` <span class="muted">(เลิกงาน ${esc(d.calc_out)})</span>` : ''}` : '<span class="bad">ไม่มี</span>'}</dd>
         ${d.worked_hours != null ? `<dt>เวลาทำงาน</dt><dd>${d.worked_hours} ชม.</dd>` : ''}
       </dl>
+      ${d.manual ? '<div class="fr-manual">📝 เวลาของวันนี้บันทึกจากคำขอลืมสแกนที่ผู้ดูแลอนุมัติแล้ว</div>' : ''}
       ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul></div>` : ''}
       ${otRows ? `<div class="ot-box"><b>เวลาทำงานเกิน (คิดเป็น OT ได้)</b><ul>${otRows}</ul><small>ถ้าทำ OT จริง ต้องกดขอ OT เอง</small><button class="btn primary sm" id="askOt" style="margin-top:8px">ขอ OT ของวันนี้</button></div>` : ''}
       ${!(d.checkin && d.checkout) && d.date <= todayTHStr() ? `<button class="btn primary big fr-open-btn" id="frFromDay">📝 ลืมสแกน? ขอบันทึกเวลาวันนี้</button>` : ''}
