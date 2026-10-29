@@ -628,10 +628,11 @@
         refreshCounts();
         if (!items.length) { t.innerHTML = '<div class="card empty">ไม่มีคำขอลืมสแกนในช่วงนี้</div>'; return; }
         t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
-          <thead><tr><th>วันที่ทำงาน</th><th>ชื่อ</th><th>กะ</th><th>ขอบันทึก</th><th>สแกนจริงตอนนี้</th><th>หลักฐาน</th><th>เหตุผล</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+          <thead><tr><th>วันที่ทำงาน</th><th>ชื่อ</th><th>สถานที่</th><th>กะ</th><th>ขอบันทึก</th><th>สแกนจริงตอนนี้</th><th>หลักฐาน</th><th>เหตุผล</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
           <tbody>${items.map((r) => `<tr class="${r.status === 'pending' ? 'row-pending' : ''}">
             <td class="nowrap">${esc(thDate(r.work_date))}<div class="sub">ส่ง ${esc(thDateTime(r.created_at))}</div></td>
             <td>${nameCell(r.employee_id, r.name, r.emp_code)}</td>
+            <td>${esc(r.location || '-')}</td>
             <td class="nowrap">${esc(r.shift_name || '-')}</td>
             <td class="nowrap t-time">${srTimes(r.req_in, r.req_out)}${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">บันทึกจริง ${srTimes(r.approved_in, r.approved_out)}</div>` : ''}</td>
             <td class="nowrap">${srTimes(r.now_in, r.now_out)}</td>
@@ -652,6 +653,7 @@
   const srHeader = (r) => `
     <div class="name-cell" style="margin:0 40px 10px 0">${avTag(r.employee_id, r.name, 'lg')}<div><b>${esc(r.name)}</b><div class="sub">รหัส ${esc(r.emp_code)}</div></div></div>
     <div class="del-info">วันที่ทำงาน <b>${esc(thDate(r.work_date))}</b> · ${esc(r.shift_name || '-')} · ยื่นเมื่อ ${esc(thDateTime(r.created_at))}<br>
+      สถานที่ทำงาน: <b>${esc(r.location || '(ไม่ได้ระบุ)')}</b><br>
       ขอบันทึก <b>${srTimes(r.req_in, r.req_out)}</b> น. · สแกนจริงตอนนี้ ${srTimes(r.now_in, r.now_out)}<br>
       เหตุผล: ${esc(r.reason) || '<span class="muted">(ไม่ได้ระบุ)</span>'}</div>
     ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>` : '<div class="no-photo">⚠ พนักงานไม่ได้แนบรูปหลักฐาน — ตรวจสอบกับหัวหน้างานหรือใบลงเวลาก่อนอนุมัติ</div>'}`;

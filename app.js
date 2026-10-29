@@ -730,11 +730,15 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="10" r="3"/><path d="M7 18a5 5 0 0 1 10 0"/></svg>
           สแกนใบหน้า${isIn ? 'เข้างาน' : 'ออกงาน'}</button>
         <p class="hint">กดแล้วมองตรงเข้ากล้อง ค้างไว้นิ่งๆ 5 วินาที (ไม่ต้องขยับหน้า) ระบบจะถ่ายรูปพร้อมประทับเวลาจริง พิกัด และสถานที่ทำงานให้อัตโนมัติ</p>
-        <button type="button" class="btn ghost fr-entry" id="frEntryScan">📝 ลืมสแกน? ขอบันทึกเวลาย้อนหลัง</button>
+        <div class="req-entries">
+          <button type="button" class="btn ghost fr-entry" id="frEntryScan">📝 ลืมสแกน<small>ทำงานจริงแต่ลืมสแกน</small></button>
+          <button type="button" class="btn ghost fr-entry" id="apEntryScan">🏳️ ยื่นคำร้อง<small>หยุดตามคำสั่ง / ลา / มาสาย</small></button>
+        </div>
         <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
       </div>`;
 
     document.getElementById('frEntryScan').onclick = () => renderForgot();
+    document.getElementById('apEntryScan').onclick = () => renderAppeals();
     const lc = document.getElementById('lc');
     const ld = document.getElementById('ld');
     const drawClock = () => { const d = serverNow(); lc.textContent = fmtClock(d); ld.textContent = fmtDay(d); };
@@ -1340,8 +1344,12 @@
       </div>
       <p class="hint">${schedule.shifts.map((x) => `${esc(x.name)} ${esc(x.start)}–${esc(x.end)} น.`).join(' · ')}<br>
         แตะวันที่เป็น<b class="bad"> สีแดง </b>เพื่อดูสาเหตุและยื่นคำร้อง</p>
-      <button class="btn ghost big fr-entry" id="frEntryCal">📝 ลืมสแกน? ขอบันทึกเวลาย้อนหลัง</button>`;
+      <div class="req-entries">
+        <button class="btn ghost fr-entry" id="frEntryCal">📝 ลืมสแกน<small>ทำงานจริงแต่ลืมสแกน</small></button>
+        <button class="btn ghost fr-entry" id="apEntryCal">🏳️ ยื่นคำร้อง<small>หยุดตามคำสั่ง / ลา / มาสาย</small></button>
+      </div>`;
     document.getElementById('frEntryCal').onclick = () => renderForgot(calMonth);
+    document.getElementById('apEntryCal').onclick = () => renderAppeals(calMonth);
     document.querySelectorAll('.cal-day').forEach((b) => (b.onclick = () => openDay(days.find((d) => d.date === b.dataset.date))));
   }
 
@@ -1462,7 +1470,7 @@
       <button class="back" id="frBack">‹ กลับ</button>
       <h1 class="screen-title"><span class="dot"></span>ลืมสแกน · ขอบันทึกเวลา</h1>
       <p class="hint fr-hint">แตะวันที่ทำงานจริงแต่ลืมสแกน · ขอย้อนหลังได้ 60 วัน (รวมวันก่อนสมัครใช้ระบบ) · วันที่สแกนครบแล้วเลือกไม่ได้<br>
-        ถ้าวันนั้น<b>หยุดงานตามคำสั่งหัวหน้างาน หรือลา</b> ไม่ต้องขอลืมสแกน ให้กดวันนั้นในเมนูปฏิทิน แล้วยื่นคำร้องแทน</p>
+        ถ้าวันนั้น<b>หยุดงานตามคำสั่งหัวหน้างาน หรือลา</b> ไม่ต้องขอลืมสแกน ให้ <button type="button" class="linkbtn" id="frToAppeal">🏳️ ยื่นคำร้อง</button> แทน</p>
       <div class="cal-head">
         <button class="btn ghost cal-nav" id="frPrevM" aria-label="เดือนก่อน">‹</button>
         <h2 class="fr-month">${esc(monthTH(forgotMonth))}</h2>
@@ -1472,6 +1480,7 @@
     document.getElementById('frBack').onclick = () => go(from);
     document.getElementById('frPrevM').onclick = () => renderForgot(shiftYm(forgotMonth, -1));
     document.getElementById('frNextM').onclick = () => renderForgot(shiftYm(forgotMonth, 1));
+    document.getElementById('frToAppeal').onclick = () => renderAppeals(forgotMonth);
     let cal;
     let mine;
     try {
@@ -1518,7 +1527,7 @@
       ${mine.items.length ? mine.items.slice(0, 15).map((r) => `
         <div class="card fr-item">
           <div class="fr-item-top"><b>${esc(thDate(r.work_date))}</b><span class="badge ${r.status}">${SR_TH[r.status]}</span></div>
-          <div class="sub">${esc(r.shift_name || '')} · ขอ ${[r.req_in && `เข้างาน ${esc(r.req_in)}`, r.req_out && `ออกงาน ${esc(r.req_out)}`].filter(Boolean).join(' · ')} น.</div>
+          <div class="sub">${r.location ? `🏢 ${esc(r.location)} · ` : ''}${esc(r.shift_name || '')} · ขอ ${[r.req_in && `เข้างาน ${esc(r.req_in)}`, r.req_out && `ออกงาน ${esc(r.req_out)}`].filter(Boolean).join(' · ')} น.</div>
           ${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">ผู้ดูแลบันทึก ${[r.approved_in && `เข้างาน ${esc(r.approved_in)}`, r.approved_out && `ออกงาน ${esc(r.approved_out)}`].filter(Boolean).join(' · ')} น.</div>` : ''}
           ${r.review_note ? `<div class="sub">ผู้ดูแล: ${esc(r.review_note)}</div>` : ''}
         </div>`).join('') : '<div class="card empty">ยังไม่มีคำขอ</div>'}`;
@@ -1556,6 +1565,8 @@
       <div class="fr-scans">
         ${scanRow('เข้างาน', info.scans.in)}${scanRow('ออกงาน', info.scans.out)}
       </div>
+      <label class="field"><span>สถานที่ทำงานวันนั้น <b class="bad">*</b></span><input id="frPlace" maxlength="100" autocomplete="off" list="frSiteList" placeholder="พิมพ์ชื่อสถานที่ เช่น ไซต์งานบางนา"><datalist id="frSiteList">${sites.map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist></label>
+      ${store.get('last_location', '') ? `<div class="site-quick"><button type="button" class="chip-btn" id="frLastPlace">ใช้ที่เดิม: <b>${esc(store.get('last_location', ''))}</b></button></div>` : ''}
       <div class="field"><span class="field-label">กะที่ทำงานวันนั้น</span>
         <div class="fr-shifts">${info.shifts.map((s) => `<label class="fr-chip"><input type="radio" name="frShift" value="${esc(s.id)}"${s.id === shift0.id ? ' checked' : ''}><span>${esc(s.name)} ${esc(s.start)}–${esc(s.end)}</span></label>`).join('')}</div></div>
       <div class="fr-times">
@@ -1579,6 +1590,9 @@
       <button class="btn primary big" id="frSend">ส่งคำขอ</button>
       <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>`;
     let evidence = '';
+    const placeIn = sheet.querySelector('#frPlace');
+    sheet.querySelector('#frLastPlace')?.addEventListener('click', () => { placeIn.value = store.get('last_location', ''); placeIn.classList.remove('input-bad'); });
+    placeIn.addEventListener('input', () => placeIn.classList.remove('input-bad'));
     const getT = (side) => { const t = sheet.querySelector(`.time24[data-side="${side}"]`); return t ? `${t.querySelector('[data-p=h]').value}:${t.querySelector('[data-p=m]').value}` : ''; };
     const setT = (side, v) => { const t = sheet.querySelector(`.time24[data-side="${side}"]`); if (!t) return; const [h, m] = v.split(':'); t.querySelector('[data-p=h]').value = h; t.querySelector('[data-p=m]').value = m; };
     sheet.querySelectorAll('[name=frShift]').forEach((r) => (r.onchange = () => {
@@ -1609,6 +1623,8 @@
       const wantIn = needIn && sheet.querySelector('#wantIn').checked;
       const wantOut = needOut && sheet.querySelector('#wantOut').checked;
       if (!wantIn && !wantOut) return toast('กรุณาเลือกอย่างน้อย 1 รายการที่ลืมสแกน', true);
+      const place = placeIn.value.replace(/\s+/g, ' ').trim();
+      if (place.length < 2) { placeIn.classList.add('input-bad'); placeIn.focus(); placeIn.scrollIntoView({ behavior: 'smooth', block: 'center' }); return toast('กรุณาระบุสถานที่ทำงาน', true); }
       // ไม่บังคับแนบหลักฐาน แต่เตือนก่อนส่ง
       if (!evidence && !allowNoEvidence) {
         const w = sheet.querySelector('#frNoEvi');
@@ -1618,9 +1634,10 @@
       }
       sheet.querySelector('#frNoEvi').hidden = true;
       busy(btn, true, 'กำลังส่ง…');
+      store.set('last_location', place);
       try {
         await api('/api/me/scan-requests', {
-          date, shift_id: sheet.querySelector('[name=frShift]:checked').value,
+          date, shift_id: sheet.querySelector('[name=frShift]:checked').value, location: place,
           in_time: wantIn ? getT('in') : '', out_time: wantOut ? getT('out') : '',
           reason: sheet.querySelector('#frReason').value.trim(), evidence,
         });
@@ -1633,6 +1650,67 @@
     sheet.querySelector('#frSend').onclick = () => send(false);
     sheet.querySelector('#frSendAnyway').onclick = () => send(true);
     sheet.querySelector('#frGoAttach').onclick = () => { sheet.querySelector('#frNoEvi').hidden = true; sheet.querySelector('.fr-evi').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  }
+
+  // ---------- ยื่นคำร้อง: วันสีแดงที่ไม่ได้ทำงาน/มีเหตุ (หยุดตามคำสั่งหัวหน้างาน, ลา, มาสาย ฯลฯ) ----------
+  let appealMonth = null;
+  async function renderAppeals(month) {
+    const from = current;
+    appealMonth = month || appealMonth || ymOf(serverNow());
+    view.innerHTML = `
+      <button class="back" id="apBack">‹ กลับ</button>
+      <h1 class="screen-title"><span class="dot"></span>ยื่นคำร้อง</h1>
+      <p class="hint fr-hint">ใช้เมื่อวัน<b class="bad">สีแดง</b>ไม่ได้เกิดจากความผิดของคุณ เช่น <b>หยุดงานตามคำสั่งหัวหน้างาน (ไม่มีงาน)</b>, ลา, มาสาย/ออกก่อนมีเหตุจำเป็น · อนุมัติแล้ววันนั้นจะไม่นับเป็นวันแดง<br>
+        ถ้า<b>ทำงานจริงแต่ลืมสแกน</b> ให้ใช้ <button type="button" class="linkbtn" id="apToForgot">📝 ลืมสแกน</button> แทน เพื่อให้ได้เวลาทำงาน</p>
+      <div class="cal-head">
+        <button class="btn ghost cal-nav" id="apPrevM" aria-label="เดือนก่อน">‹</button>
+        <h2 class="fr-month">${esc(monthTH(appealMonth))}</h2>
+        <button class="btn ghost cal-nav" id="apNextM" aria-label="เดือนถัดไป">›</button>
+      </div>
+      <div id="apBody"><div class="card empty">กำลังโหลด…</div></div>`;
+    document.getElementById('apBack').onclick = () => go(from);
+    document.getElementById('apToForgot').onclick = () => renderForgot(appealMonth);
+    document.getElementById('apPrevM').onclick = () => renderAppeals(shiftYm(appealMonth, -1));
+    document.getElementById('apNextM').onclick = () => renderAppeals(shiftYm(appealMonth, 1));
+    let cal;
+    try { cal = await api(`/api/me/calendar?month=${appealMonth}`); } catch (err) {
+      const b = document.getElementById('apBody');
+      if (b) b.innerHTML = `<div class="card empty">${esc(err.message)}<div style="margin-top:12px"><button class="btn primary" id="apRetry">ลองใหม่</button></div></div>`;
+      document.getElementById('apRetry')?.addEventListener('click', () => renderAppeals(appealMonth));
+      return;
+    }
+    const body = document.getElementById('apBody');
+    if (!body) return;
+    calData = cal; // ฟอร์มคำร้องใช้รายการเหตุผลจากข้อมูลปฏิทิน
+    const todayStr = todayTHStr();
+    document.getElementById('apNextM').disabled = appealMonth >= todayStr.slice(0, 7);
+    document.getElementById('apPrevM').disabled = !!cal.start_date && appealMonth <= cal.start_date.slice(0, 7);
+    const lead = new Date(`${cal.days[0].date}T12:00:00Z`).getUTCDay();
+    const stateOf = (d) => (d.appeal?.status === 'pending' ? 'pending' : d.color === 'excused' ? 'approved' : d.color === 'red' ? 'need' : 'off');
+    const MARK = { pending: '⏳', approved: '✓', need: '!', off: '' };
+    const mineDays = cal.days.filter((d) => d.appeal);
+    const reds = cal.days.filter((d) => d.color === 'red').length;
+    body.innerHTML = `
+      <div class="card cal-card">
+        <div class="cal-grid cal-week">${WEEK_TH.map((w) => `<span>${w}</span>`).join('')}</div>
+        <div class="cal-grid">
+          ${'<span></span>'.repeat(lead)}
+          ${cal.days.map((d) => { const st = stateOf(d); return `<button class="cal-day fr-day ap-${st}${d.date === todayStr ? ' today' : ''}" data-date="${d.date}" ${st === 'off' ? 'disabled' : ''}>
+            <span class="n">${Number(d.date.slice(8))}</span><span class="m">${MARK[st]}</span></button>`; }).join('')}
+        </div>
+        <div class="cal-legend">
+          <span><i class="fr-need"></i>วันสีแดง (ยื่นคำร้องได้)</span><span><i class="fr-pending"></i>รอพิจารณา</span><span><i class="c-excused"></i>อนุมัติคำร้องแล้ว</span>
+        </div>
+      </div>
+      ${reds ? '' : '<p class="hint">เดือนนี้ไม่มีวันสีแดง ไม่ต้องยื่นคำร้อง</p>'}
+      <h2 class="section-title">คำร้องของฉัน (เดือนนี้)</h2>
+      ${mineDays.length ? mineDays.map((d) => `
+        <div class="card fr-item">
+          <div class="fr-item-top"><b>${esc(thDate(d.date))}</b><span class="badge ${d.appeal.status}">${esc(APPEAL_TH[d.appeal.status])}</span></div>
+          <div class="sub">${esc(d.appeal.reason)}${d.appeal.note ? ` · ${esc(d.appeal.note)}` : ''}</div>
+          ${d.appeal.review_note ? `<div class="sub">ผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}
+        </div>`).join('') : '<div class="card empty">ยังไม่มีคำร้องในเดือนนี้</div>'}`;
+    body.querySelectorAll('.fr-day:not([disabled])').forEach((b) => (b.onclick = () => openDay(cal.days.find((d) => d.date === b.dataset.date))));
   }
 
   function openDay(d) {
@@ -1668,6 +1746,15 @@
     el.querySelector('#frFromDay')?.addEventListener('click', () => { closeSheet(); openForgotForm(d.date); });
     const f = el.querySelector('#apf');
     if (!f) return;
+    f.reason.addEventListener('change', () => {
+      let tip = f.querySelector('.ap-tip');
+      if (/^ลืมสแกน/.test(f.reason.value)) {
+        if (!tip) {
+          f.reason.closest('.field').insertAdjacentHTML('afterend', '<div class="ap-tip">ถ้าวันนั้น<b>ทำงานจริง</b>แต่ลืมสแกน แนะนำใช้ <button type="button" class="linkbtn">📝 ลืมสแกน</button> แทน ระบบจะบันทึกเวลาทำงานให้ (คำร้องไม่บันทึกเวลา)</div>');
+          f.querySelector('.ap-tip button').onclick = () => { closeSheet(); openForgotForm(d.date); };
+        }
+      } else if (tip) tip.remove();
+    });
     f.onsubmit = async (e) => {
       e.preventDefault();
       if (!f.reason.value) return toast('กรุณาเลือกเหตุผล', true);
@@ -1677,8 +1764,9 @@
       try {
         await api('/api/me/appeals', { date: d.date, reason: f.reason.value, note: f.note.value.trim() });
         closeSheet();
-        toast('ส่งคำร้องแล้ว รอผู้ดูแลพิจารณา');
-        renderCalendar(calMonth);
+        toast('ส่งคำร้องแล้ว รอผู้ดูแลพิจารณา ผลจะแจ้งที่กระดิ่ง 🔔');
+        if (document.getElementById('apBody')) renderAppeals(appealMonth);
+        else renderCalendar(calMonth);
       } catch (err) { toast(err.message, true); busy(btn, false); }
     };
   }
