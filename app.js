@@ -602,6 +602,11 @@
           <button class="btn primary big" id="avShot" type="button" disabled>📸 ถ่ายรูป</button>
           <button class="btn ghost big" id="avRetake" type="button" hidden>ถ่ายใหม่</button>
           <button class="btn primary big" id="avUse" type="button" hidden>ใช้รูปนี้</button>
+        </div>
+        <div class="av-fallback" id="avFallback" hidden>
+          <p id="avFbMsg"></p>
+          <button class="btn primary big" id="avPickFile" type="button">🖼️ เลือกรูปจากเครื่องแทน</button>
+          <button class="btn ghost big" id="avRetry" type="button">ลองเปิดกล้องอีกครั้ง</button>
         </div>`;
       document.body.appendChild(ov);
       document.body.classList.add('scanning');
@@ -624,11 +629,34 @@
         resolve(val);
       };
       ov.querySelector('.scan-x').onclick = () => finish(null);
+      // เปิดกล้องไม่ได้: ให้เลือกรูปจากเครื่องแทน (กดปุ่มเอง เพื่อให้เบราว์เซอร์ยอมเปิดหน้าเลือกไฟล์)
+      const showFallback = (msg) => {
+        clearInterval(timer);
+        stream?.getTracks().forEach((t) => t.stop());
+        stream = null;
+        ov.querySelector('.av-actions').hidden = true;
+        ov.querySelector('#avFbMsg').textContent = msg;
+        ov.querySelector('#avFallback').hidden = false;
+        st.textContent = 'เปิดกล้องไม่ได้';
+      };
+      ov.querySelector('#avPickFile').onclick = async () => { const a = await pickAvatarFile(); if (a) finish(a); };
+      ov.querySelector('#avRetry').onclick = () => {
+        ov.querySelector('#avFallback').hidden = true;
+        ov.querySelector('.av-actions').hidden = false;
+        start();
+      };
+      let startedAt = 0;
 
       const watch = () => {
         clearInterval(timer);
+        startedAt = Date.now();
         timer = setInterval(() => {
-          if (!video.videoWidth || !preview.hidden) return;
+          if (!preview.hidden) return;
+          // กล้องไม่ส่งภาพภายใน 10 วินาที
+          if (!video.videoWidth) { if (Date.now() - startedAt > 10000) showFallback('กล้องไม่ส่งภาพ (อาจถูกแอปอื่นใช้อยู่) ปิดแอปกล้อง/วิดีโอคอลแล้วลองใหม่ หรือเลือกรูปจากเครื่องแทน'); return; }
+          // บางรุ่นระบบจับหน้าไม่ได้: เกิน 8 วินาทีให้กดถ่ายได้เลย
+          if (detector && Date.now() - startedAt > 8000 && shot.disabled) { shot.disabled = false; st.textContent = 'ถ้าระบบจับหน้าไม่ได้ กดถ่ายรูปได้เลย (หน้าตรง ให้หน้าอยู่ในวงกลม)'; return; }
+          if (detector && Date.now() - startedAt > 8000) return;
           if (!detector) { shot.disabled = false; st.textContent = 'หน้าตรง ให้หน้าอยู่ในวงกลม แล้วกดถ่ายรูป'; return; }
           try {
             const faces = (detector.detectForVideo(video, performance.now()).detections || []).filter((d) => (d.categories?.[0]?.score ?? 0) >= 0.5);
@@ -670,21 +698,27 @@
       retake.onclick = () => { preview.hidden = true; shot.hidden = false; retake.hidden = true; use.hidden = true; st.textContent = 'หน้าตรง ให้หน้าอยู่ในวงกลม แล้วกดถ่ายรูป'; };
       use.onclick = () => finish(result);
 
-      (async () => {
+      const start = async () => {
+        st.textContent = 'กำลังเปิดกล้อง…';
         try {
           stream = await openCamera();
         } catch (e) {
-          finish(null);
-          return cameraError(e);
+          if (!ov.isConnected) return;
+          if (e && e.name === 'NotAllowedError') return showFallback(IN_APP ? `แอป ${IN_APP} ไม่อนุญาตให้ใช้กล้อง เลือกรูปจากเครื่องแทน หรือเปิดลิงก์ใน ${IS_IOS ? 'Safari' : 'Chrome'}` : 'ไม่ได้อนุญาตให้ใช้กล้อง เปิดสิทธิ์กล้องในการตั้งค่าแล้วลองใหม่ หรือเลือกรูปจากเครื่องแทน');
+          if (e && e.name === 'NotReadableError') return showFallback('กล้องถูกแอปอื่นใช้อยู่ ปิดแอปกล้อง/วิดีโอคอลแล้วลองใหม่ หรือเลือกรูปจากเครื่องแทน');
+          return showFallback('เปิดกล้องไม่ได้ เลือกรูปจากเครื่องแทน');
         }
         if (!ov.isConnected) { stream.getTracks().forEach((t) => t.stop()); return; }
         if (VIRTUAL_CAM_RE.test(stream.getVideoTracks()[0]?.label || '')) { finish(null); return toast('ไม่อนุญาตให้ใช้กล้องเสมือน', true); }
+        video.muted = true;
+        video.setAttribute('playsinline', '');
         video.srcObject = stream;
         video.play().catch(() => {});
         st.textContent = 'กำลังเตรียมกล้อง…';
-        try { detector = await withTimeout(loadFaceDetector(), 10000); } catch { detector = null; }
+        if (!detector) { try { detector = await withTimeout(loadFaceDetector(), 10000); } catch { detector = null; } }
         if (ov.isConnected) watch();
-      })();
+      };
+      start();
     });
   }
 
@@ -908,6 +942,61 @@
   }
 
   // ---------- หน้าจอสแกนใบหน้า 5 วินาที ----------
+  // ตรวจว่ามือถือเครื่องนี้พร้อมใช้งานไหม: กล้อง, ตรวจใบหน้า, GPS (ไม่บันทึกอะไร)
+  async function deviceCheck() {
+    const el = openSheet('<h2 class="sheet-title">ตรวจอุปกรณ์</h2><div class="dev-list" id="devList"></div><button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>');
+    const list = el.querySelector('#devList');
+    const row = (label) => {
+      list.insertAdjacentHTML('beforeend', `<div class="dev-row"><span>${esc(label)}</span><b class="muted">กำลังตรวจ…</b></div>`);
+      const b = list.lastElementChild.querySelector('b');
+      return (ok, text) => { b.className = ok === true ? 'ok' : ok === false ? 'bad' : 'warn'; b.textContent = text; };
+    };
+    const os = IS_IOS ? `iPhone/iPad iOS ${(/OS (\d+)_(\d+)/.exec(UA) || []).slice(1).join('.') || '?'}` : (/Android ([\d.]+)/.exec(UA) || [])[1] ? `Android ${(/Android ([\d.]+)/.exec(UA) || [])[1]}` : 'คอมพิวเตอร์/อื่นๆ';
+    const browser = IN_APP ? `ในแอป ${IN_APP}` : /CriOS|Chrome\//.test(UA) && !/Edg|SamsungBrowser|OPR/.test(UA) ? 'Chrome' : /SamsungBrowser/.test(UA) ? 'Samsung Internet' : /FxiOS|Firefox/.test(UA) ? 'Firefox' : /EdgiOS|Edg\//.test(UA) ? 'Edge' : /Safari/.test(UA) ? 'Safari' : 'อื่นๆ';
+    row('อุปกรณ์')(null, os);
+    row('เบราว์เซอร์')(IN_APP ? false : null, browser + (window.matchMedia?.('(display-mode: standalone)').matches ? ' (แอปบนหน้าจอหลัก)' : ''));
+    row('การเชื่อมต่อปลอดภัย (https)')(window.isSecureContext, window.isSecureContext ? 'ผ่าน' : 'ไม่ผ่าน');
+    const cam = row('กล้อง');
+    if (!hasCameraApi()) cam(false, IN_APP ? 'ใช้ไม่ได้ในแอปนี้ → เปิดใน Safari/Chrome' : 'เบราว์เซอร์นี้ใช้กล้องไม่ได้ → เปิดใน Safari/Chrome');
+    else {
+      try {
+        const stx = await openCamera();
+        const set = stx.getVideoTracks()[0]?.getSettings?.() || {};
+        stx.getTracks().forEach((t) => t.stop());
+        cam(true, `ผ่าน${set.width ? ` (${set.width}×${set.height})` : ''}`);
+      } catch (e) {
+        cam(false, e && e.name === 'NotAllowedError' ? 'ไม่ได้อนุญาต → เปิดสิทธิ์กล้องในการตั้งค่า' : e && e.name === 'NotReadableError' ? 'กล้องถูกแอปอื่นใช้อยู่' : `เปิดไม่ได้ (${esc(e && e.name || 'error')})`);
+      }
+    }
+    const fd = row('ระบบตรวจใบหน้า');
+    try { await withTimeout(loadFaceDetector(), 15000); fd(true, 'ผ่าน'); } catch { fd(null, 'โหลดไม่ได้ (ยังสแกนได้ แต่ระบบจะแจ้งผู้ดูแลตรวจสอบ)'); }
+    const gps = row('ตำแหน่ง GPS');
+    if (!('geolocation' in navigator)) gps(false, 'อุปกรณ์ไม่รองรับ');
+    else {
+      await new Promise((res) => navigator.geolocation.getCurrentPosition(
+        (p) => { gps(true, `ผ่าน (แม่นยำ ±${Math.round(p.coords.accuracy)} ม.)`); res(); },
+        (e) => { gps(false, e.code === 1 ? 'ไม่ได้อนุญาต → เปิดสิทธิ์ตำแหน่งในการตั้งค่า' : 'หาตำแหน่งไม่ได้ → ออกไปที่โล่งแล้วลองใหม่'); res(); },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }));
+    }
+    list.insertAdjacentHTML('beforeend', '<p class="hint">ถ้ามีข้อใดไม่ผ่าน ให้ถ่ายภาพหน้าจอนี้ส่งให้ผู้ดูแล</p>');
+  }
+
+  // สแกนไม่สำเร็จ: บอกวิธีแก้ และทางเลือก "ลืมสแกน" (แนบรูปใบลงเวลา)
+  function scanHelp(reason) {
+    const el = openSheet(`
+      <h2 class="sheet-title">สแกนไม่สำเร็จ</h2>
+      <p class="muted">${esc(reason || 'ระบบจับใบหน้าไม่ได้ภายในเวลาที่กำหนด')}</p>
+      <ol class="cam-help">
+        <li>ไปที่ที่มีแสงสว่าง หันหน้าเข้าหาแสง ไม่ยืนย้อนแสง</li>
+        <li>ถือมือถือระดับสายตา ห่างประมาณ 1 ศอก ให้หน้าอยู่ในกรอบวงรี</li>
+        <li>ถอดหน้ากาก/แว่นดำ/หมวก แล้วมองตรงค้างไว้นิ่งๆ</li>
+        <li>ถ้ายังไม่ได้ กดปุ่ม ⟳ มุมขวาบน แล้วลองใหม่</li>
+      </ol>
+      <button class="btn primary big" data-close>ลองสแกนใหม่</button>
+      <button class="btn ghost big" id="helpToForgot" style="margin-top:8px">📝 สแกนไม่ได้จริงๆ? ขอบันทึกเวลา (ลืมสแกน)</button>`);
+    el.querySelector('#helpToForgot').onclick = () => { closeSheet(); renderForgot(); };
+  }
+
   async function runScanner(mode, locationChoice) {
     const label = mode === 'in' ? 'เช็คอิน' : 'เช็คเอ้าท์';
     const ov = document.createElement('div');
@@ -957,6 +1046,8 @@
       const track = stream.getVideoTracks()[0];
       const cameraLabel = track?.label || '';
       if (VIRTUAL_CAM_RE.test(cameraLabel)) return fail('ไม่อนุญาตให้ใช้กล้องเสมือนหรือโปรแกรมปลอมภาพ');
+      video.muted = true;
+      video.setAttribute('playsinline', '');
       video.srcObject = stream;
       video.play().catch(() => {}); // ไม่รอ play() เพราะจะค้างถ้ากล้องไม่ส่งภาพ (มีตัวจับเวลาด้านล่าง)
       // รอภาพจากกล้องไม่เกิน 10 วินาที (กันค้างถ้ากล้องถูกแอปอื่นใช้อยู่)
@@ -965,7 +1056,7 @@
         new Promise((r) => setTimeout(() => r(false), 10000)),
       ]);
       if (closed) return;
-      if (!camReady) return fail('กล้องไม่ส่งภาพ กรุณาปิดแอปอื่นที่ใช้กล้องอยู่ แล้วลองใหม่');
+      if (!camReady) { close(); return scanHelp('กล้องไม่ส่งภาพ (อาจถูกแอปอื่นใช้อยู่) ปิดแอปกล้อง/วิดีโอคอล แล้วลองใหม่'); }
 
       st.textContent = 'กำลังเตรียมระบบตรวจใบหน้า…';
       let detector = null;
@@ -1063,7 +1154,7 @@
           : 'มองตรงเข้ากล้อง ให้หน้าอยู่ในกรอบวงรี';
 
         if (okMs >= SCAN_MS && now - t0 >= SCAN_MS) return finish(now - t0, okFrames / Math.max(1, frames));
-        if (now - t0 > 90000) return fail('สแกนไม่สำเร็จภายในเวลา กรุณาลองใหม่ในที่มีแสงสว่าง');
+        if (now - t0 > 90000) { close(); return scanHelp(); }
         raf = requestAnimationFrame(step);
       };
       const SCAN_MS = cap.scan_ms || 5000;
@@ -1859,6 +1950,7 @@
         <div class="profile-actions">
           <button class="btn ghost sm" id="chAvatar">${me.avatar ? 'เปลี่ยนรูปโปรไฟล์' : 'ถ่ายรูปโปรไฟล์'}</button>
           <button class="btn ghost sm" id="chPhone">เปลี่ยนเบอร์โทร</button>
+          <button class="btn ghost sm" id="devCheck">ตรวจอุปกรณ์</button>
           <button class="btn ghost sm" id="chCode">แจ้งรหัสพนักงานผิด</button>
         </div>
         <button class="linkbtn danger" id="logout">ออกจากระบบ</button>
@@ -1867,6 +1959,7 @@
       <div id="hist"><div class="card empty">กำลังโหลด…</div></div>`;
     document.getElementById('chAvatar').onclick = changeAvatar;
     document.getElementById('chPhone').onclick = openPhoneSheet;
+    document.getElementById('devCheck').onclick = deviceCheck;
     document.getElementById('chCode').onclick = openCodeSheet;
     loadCodeRequest();
     document.getElementById('logout').onclick = async () => {

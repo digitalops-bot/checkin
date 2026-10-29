@@ -436,3 +436,13 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 .ap-tip { margin: -4px 0 10px; padding: 10px 12px; border-radius: 10px; background: #fff4e5; color: #6b3a00; font-size: 14px; line-height: 1.5; }
 @media (prefers-color-scheme: dark) { .fr-day.ap-need { background: #3b1a1c; color: #ffb4b4; } .fr-day.ap-pending, .ap-tip { background: #3a2a10; color: #ffd59a; } }
 .fr-hint .linkbtn, .ap-tip .linkbtn { display: inline; padding: 0; margin: 0; width: auto; min-height: 0; font-weight: 700; }
+
+/* รูปโปรไฟล์: ทางเลือกเมื่อเปิดกล้องไม่ได้ */
+.av-fallback { display: grid; gap: 10px; padding: 0 16px calc(16px + env(safe-area-inset-bottom)); background: #000; color: #fff; text-align: center; }
+.av-fallback p { margin: 0; line-height: 1.5; color: rgba(255,255,255,.85); }
+.av-fallback .btn.ghost { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
+/* ตรวจอุปกรณ์ */
+.dev-list { display: grid; gap: 6px; }
+.dev-row { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: 14px; }
+.dev-row b { text-align: right; }
+.dev-row b.ok { color: var(--ok, #0f9d76); } .dev-row b.bad { color: var(--bad, #c62828); } .dev-row b.warn { color: #b26a00; }
