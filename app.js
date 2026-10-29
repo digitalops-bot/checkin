@@ -1,5 +1,27 @@
 // แอปพนักงาน: สมัคร / เข้าสู่ระบบ / เช็คอิน / เช็คเอ้าท์ / ขอ OT / ประวัติ
 (() => {
+  // ---------- รองรับกล้องทุกอุปกรณ์ ----------
+  // เบราว์เซอร์ในแอป (LINE / Facebook / Messenger / Instagram ฯลฯ) บน iPhone ไม่ให้เว็บใช้กล้อง
+  const UA = navigator.userAgent || '';
+  const IS_IOS = /iPhone|iPad|iPod/i.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const IN_APP = /\bLine\//i.test(UA) ? 'LINE' : /FBAN|FBAV|FB_IAB|FBIOS|Messenger/i.test(UA) ? 'Facebook/Messenger'
+    : /Instagram/i.test(UA) ? 'Instagram' : /musical_ly|TikTok|BytedanceWebview/i.test(UA) ? 'TikTok'
+      : /MicroMessenger/i.test(UA) ? 'WeChat' : /KAKAOTALK/i.test(UA) ? 'KakaoTalk' : '';
+  // LINE: เติม ?openExternalBrowser=1 แล้ว LINE จะเปิดลิงก์ใน Safari/Chrome ให้เอง
+  if (IN_APP === 'LINE' && !/[?&]openExternalBrowser=1/.test(location.search)) {
+    location.replace(`${location.pathname}${location.search ? `${location.search}&` : '?'}openExternalBrowser=1${location.hash}`);
+    return;
+  }
+  // เบราว์เซอร์รุ่นเก่า: ใช้ getUserMedia แบบเดิมแทน
+  try {
+    if (!navigator.mediaDevices) navigator.mediaDevices = {};
+    if (!navigator.mediaDevices.getUserMedia) {
+      const legacy = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+      if (legacy) navigator.mediaDevices.getUserMedia = (c) => new Promise((res, rej) => legacy.call(navigator, c, res, rej));
+    }
+  } catch { /* เบราว์เซอร์ไม่ให้แก้ */ }
+  const hasCameraApi = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
   const view = document.getElementById('view');
   const toastEl = document.getElementById('toast');
   const tabbar = document.querySelector('.tabbar');
@@ -205,6 +227,7 @@
       <button class="back" id="back">‹ กลับไปหน้าเข้าสู่ระบบ</button>
       <h1 class="screen-title"><span class="dot"></span>ลงทะเบียนพนักงาน</h1>
       <form class="card" id="f" novalidate>
+        ${cameraBanner()}
         <div class="field av-field"><span class="field-label">รูปโปรไฟล์ <b class="bad">*</b></span>
           <button type="button" class="av-pick" id="avPick"><span class="avatar xl" id="avCircle">📷</span>
             <span><b id="avPickTxt">แตะเพื่อถ่ายรูปโปรไฟล์</b><small>ถ่ายจากกล้องหน้า หน้าตรง เห็นหน้าชัด ใช้แสดงในระบบ</small></span></button>
@@ -410,6 +433,68 @@
     }
     return detectorPromise;
   }
+  // เปิดกล้องหน้า: ลองตั้งค่าละเอียดก่อน ถ้าเครื่องรุ่นเก่าไม่รองรับ ค่อยลดเงื่อนไขลง
+  async function openCamera() {
+    if (!hasCameraApi()) throw Object.assign(new Error('อุปกรณ์นี้ไม่รองรับกล้อง'), { name: 'NoCameraApi' });
+    const tries = [
+      { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false },
+      { video: { facingMode: 'user' }, audio: false },
+      { video: true, audio: false },
+    ];
+    let last;
+    for (const c of tries) {
+      try { return await navigator.mediaDevices.getUserMedia(c); } catch (e) {
+        last = e;
+        if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) break; // ไม่ได้อนุญาต ลองซ้ำไม่ช่วย
+      }
+    }
+    throw last;
+  }
+  // จัดการเมื่อเปิดกล้องไม่ได้: บอกสาเหตุและวิธีแก้ให้ชัด
+  function cameraError(e) {
+    if (e && (e.name === 'NoCameraApi' || (IN_APP && e.name === 'NotAllowedError'))) return showCameraHelp();
+    if (e && e.name === 'NotAllowedError') return toast('ไม่ได้อนุญาตให้ใช้กล้อง กรุณาเปิดสิทธิ์กล้องให้แอปนี้ในการตั้งค่า', true);
+    if (e && e.name === 'NotReadableError') return toast('กล้องถูกแอปอื่นใช้อยู่ กรุณาปิดแอปกล้อง/วิดีโอคอลแล้วลองใหม่', true);
+    if (e && e.name === 'NotFoundError') return toast('ไม่พบกล้องในอุปกรณ์นี้', true);
+    return toast('เปิดกล้องไม่ได้ กรุณาลองใหม่', true);
+  }
+  const appUrl = () => `${location.origin}${location.pathname}`;
+  function showCameraHelp() {
+    // Chrome/Firefox/Edge บน iPhone ใช้กล้องในเว็บได้เฉพาะ iOS 14.3 ขึ้นไป (Safari ได้ตั้งแต่ iOS 11)
+    const iosVer = (/OS (\d+)_(\d+)/.exec(UA) || []).slice(1).join('.');
+    const iosOther = IS_IOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(UA) ? (/CriOS/.test(UA) ? 'Chrome' : /FxiOS/.test(UA) ? 'Firefox' : /EdgiOS/.test(UA) ? 'Edge' : 'Opera') : '';
+    const where = IN_APP ? `คุณเปิดลิงก์จากในแอป <b>${esc(IN_APP)}</b> ซึ่งไม่อนุญาตให้เว็บใช้กล้อง`
+      : iosOther ? `<b>${iosOther}</b> บน iPhone เครื่องนี้${iosVer ? ` (iOS ${esc(iosVer)})` : ''} ใช้กล้องในเว็บไม่ได้ (ต้องเป็น iOS 14.3 ขึ้นไป)`
+        : 'เบราว์เซอร์นี้ไม่อนุญาตให้เว็บใช้กล้อง';
+    const steps = IS_IOS
+      ? `<li>${iosOther ? 'กด <b>คัดลอกลิงก์</b> ด้านล่าง → เปิดแอป <b>Safari</b> (เข็มทิศสีฟ้า) → วางลิงก์ในช่องที่อยู่ → เข้าสู่ระบบ' : 'กดปุ่ม <b>⋯</b> หรือ <b>⤴︎</b> (มุมขวาบน/ล่าง) → เลือก <b>"เปิดใน Safari"</b> (Open in Safari / Open in Browser)'}</li>
+         <li>หรือกด <b>คัดลอกลิงก์</b> ด้านล่าง แล้วเปิดแอป <b>Safari</b> วางลิงก์ในช่องที่อยู่</li>
+         <li>หรืออัปเดต iPhone (ตั้งค่า → ทั่วไป → รายการอัปเดตซอฟต์แวร์) และอัปเดตแอป Chrome แล้วลองใหม่ <b>แนะนำใช้ Safari</b> ใช้ได้ทุกรุ่น</li>`
+      : `<li>กดปุ่ม <b>⋮</b> มุมขวาบน → เลือก <b>"เปิดใน Chrome"</b> (Open in browser) หรือกดปุ่มด้านล่าง</li>
+         <li>หรือกด <b>คัดลอกลิงก์</b> แล้วเปิดแอป <b>Chrome</b> วางลิงก์ในช่องที่อยู่</li>`;
+    const el = openSheet(`
+      <h2 class="sheet-title">เปิดกล้องไม่ได้</h2>
+      <p class="muted">${where} กรุณาเปิดลิงก์นี้ใน${IS_IOS ? ' <b>Safari</b>' : ' <b>Chrome</b>'} แทน</p>
+      <ol class="cam-help">${steps}</ol>
+      <div class="cam-help-actions">
+        ${!IS_IOS && /Android/i.test(UA) ? `<a class="btn primary" href="intent://${esc(location.host + location.pathname)}#Intent;scheme=https;package=com.android.chrome;end">เปิดใน Chrome</a>` : ''}
+        <button class="btn ${IS_IOS ? 'primary' : 'ghost'}" id="copyAppUrl">คัดลอกลิงก์</button>
+        <button class="btn ghost" data-close>ปิด</button>
+      </div>
+      <p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>`);
+    el.querySelector('#copyAppUrl').onclick = async () => {
+      try { await navigator.clipboard.writeText(appUrl()); toast('คัดลอกลิงก์แล้ว นำไปวางใน ' + (IS_IOS ? 'Safari' : 'Chrome')); }
+      catch { prompt('คัดลอกลิงก์นี้ไปเปิดใน ' + (IS_IOS ? 'Safari' : 'Chrome'), appUrl()); }
+    };
+  }
+  // แถบเตือนล่วงหน้า (ก่อนกดสแกน/ถ่ายรูป) ถ้าเบราว์เซอร์นี้ใช้กล้องไม่ได้
+  const cameraBanner = () => ((IN_APP && IS_IOS) || !hasCameraApi()
+    ? `<div class="cam-warn">⚠ ${IN_APP ? `เปิดจากในแอป ${esc(IN_APP)} จะใช้กล้องไม่ได้`
+      : IS_IOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(UA) ? 'เบราว์เซอร์นี้บน iPhone เครื่องนี้ใช้กล้องไม่ได้ กรุณาเปิดใน Safari'
+        : 'เบราว์เซอร์นี้ใช้กล้องไม่ได้'} <button type="button" class="linkbtn" data-cam-help>วิธีแก้</button></div>`
+    : '');
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-cam-help]')) showCameraHelp(); });
+
   const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
   const VIRTUAL_CAM_RE = /virtual|obs|manycam|snap camera|xsplit|droidcam|epoccam|iriun|camo|ndi|splitcam|youcam|e2esoft|vcam/i;
 
@@ -579,11 +664,10 @@
 
       (async () => {
         try {
-          if (!navigator.mediaDevices?.getUserMedia) throw new Error('อุปกรณ์นี้ไม่รองรับกล้อง');
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+          stream = await openCamera();
         } catch (e) {
           finish(null);
-          return toast(e.name === 'NotAllowedError' ? 'ไม่ได้อนุญาตให้ใช้กล้อง กรุณาเปิดสิทธิ์กล้องให้แอปนี้' : (e.message || 'เปิดกล้องไม่ได้'), true);
+          return cameraError(e);
         }
         if (!ov.isConnected) { stream.getTracks().forEach((t) => t.stop()); return; }
         if (VIRTUAL_CAM_RE.test(stream.getVideoTracks()[0]?.label || '')) { finish(null); return toast('ไม่อนุญาตให้ใช้กล้องเสมือน', true); }
@@ -626,6 +710,7 @@
       <h1 class="screen-title ${mode}"><span class="dot"></span>ลงเวลา · ${isIn ? 'เข้างาน' : 'ออกงาน'}</h1>
       <div class="card">
         ${whoChip()}
+        ${cameraBanner()}
         ${scanBanner(mode)}
         <div class="live-clock"><small>เวลาจริงจากระบบ (ตั้งเองไม่ได้)</small><b id="lc">--:--:--</b><span id="ld"></span></div>
         <div id="permBox"></div>
@@ -773,6 +858,8 @@
       return;
     }
     if (btn) busy(btn, false);
+    // เบราว์เซอร์ในแอป/ไม่รองรับกล้อง: เปิดสิทธิ์ในตั้งค่าไม่ช่วย ต้องเปิดใน Safari/Chrome
+    if (!hasCameraApi() || (IN_APP && !camOk)) return showCameraHelp();
     const miss = [!geoOk && 'ตำแหน่ง', !camOk && 'กล้อง'].filter(Boolean).join(' และ ');
     toast(`ยังไม่ได้อนุญาต${miss} — ต้องเปิดในการตั้งค่ามือถือตามขั้นตอนนี้`, true);
     openPermGuide();
@@ -846,11 +933,11 @@
     const fail = (msg) => { close(); toast(msg, true); };
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia) return fail('อุปกรณ์นี้ไม่รองรับกล้อง');
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false });
+        stream = await openCamera();
       } catch (e) {
-        return fail(e.name === 'NotAllowedError' ? 'ไม่ได้อนุญาตให้ใช้กล้อง กรุณาเปิดสิทธิ์กล้องให้แอปนี้' : 'เปิดกล้องไม่ได้ กรุณาลองใหม่');
+        close();
+        return cameraError(e);
       }
       if (closed) return close();
       const track = stream.getVideoTracks()[0];

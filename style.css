@@ -347,3 +347,10 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 .av-actions .btn { flex: 1; }
 .av-actions .btn.ghost { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
 .av-actions .btn:disabled { opacity: .45; }
+
+/* เปิดกล้องไม่ได้ (เบราว์เซอร์ในแอป) */
+.cam-warn { background: #fff4e5; color: #8a4b00; border: 1px solid #ffd59a; border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 14px; line-height: 1.5; }
+.cam-warn .linkbtn { font-weight: 700; }
+.cam-help { margin: 8px 0 14px; padding-left: 20px; display: grid; gap: 8px; line-height: 1.55; }
+.cam-help-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+@media (prefers-color-scheme: dark) { .cam-warn { background: #3a2a10; color: #ffd59a; border-color: #6b4a14; } }
