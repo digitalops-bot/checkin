@@ -481,6 +481,7 @@
     for (const c of tries) {
       try { return await navigator.mediaDevices.getUserMedia(c); } catch (e) {
         last = e;
+        lastCamErr = e;
         if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) break; // ไม่ได้อนุญาต ลองซ้ำไม่ช่วย
       }
     }
@@ -527,10 +528,10 @@
       </div>
       ${!IS_IOS || IOS_VER >= 13.4 ? '<p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>' : ''}
       ${token && !nativeGo ? '<button class="btn ghost big" id="camToForgot">📝 สแกนไม่ได้ตอนนี้? ขอบันทึกเวลา (แนบรูปใบลงเวลา)</button>' : ''}
-      <button class="btn ghost big" id="camToProblem" style="margin-top:8px">🆘 ทำตามแล้วยังไม่ได้? แจ้งผู้ดูแล</button>
+      <button class="btn ghost big" id="camToProblem" style="margin-top:8px">📤 ทำตามแล้วยังไม่ได้? ส่งข้อมูลเครื่องให้ผู้ดูแล</button>
       <p class="hint pb-dev">ข้อมูลเครื่อง (ถ่ายภาพหน้าจอส่งผู้ดูแลได้): ${esc(deviceSummary())} · กล้องเว็บ ${hasCameraApi() ? 'มี' : 'ไม่มี'} · ${IOS_STANDALONE ? 'ไอคอนหน้าจอหลัก' : IOS_WEBVIEW ? 'ในแอปอื่น' : 'เบราว์เซอร์'} · ${window.isSecureContext ? 'https' : 'ไม่ปลอดภัย'}</p>`);
     el.querySelector('#nativeGo')?.addEventListener('click', nativeGo || (() => {}));
-    el.querySelector('#camToProblem').onclick = () => openProblemForm(token ? 'app' : 'register', { category: 'กล้อง/สแกนใบหน้า', detail: `ระบบแจ้งว่า: ${why.text}\n` });
+    el.querySelector('#camToProblem').onclick = () => sendCamDiag(why.text);
     el.querySelector('#camToForgot')?.addEventListener('click', () => { closeSheet(); renderForgotScan(); });
     el.querySelector('#copyAppUrl').onclick = async () => {
       try { await navigator.clipboard.writeText(appUrl()); toast('คัดลอกลิงก์แล้ว นำไปวางใน ' + (IS_IOS ? 'Safari' : 'Chrome')); }
@@ -971,21 +972,40 @@
     if (current === 'scan') renderScan();
   }
   function openPermGuide() {
-    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const ios = IS_IOS;
+    const iosChrome = IS_IOS && /CriOS/.test(UA);
+    const gIosChrome = `<div class="guide${iosChrome ? ' first' : ''}"><b>🍎 iPhone (Chrome)</b><ol>
+        <li>ออกจาก Chrome ไปที่แอป <b>ตั้งค่า</b> ของ iPhone (ไอคอนเฟือง) → เลื่อนลงล่างสุดหา <b>"Chrome"</b> (iOS 18: ตั้งค่า → แอป → Chrome)</li>
+        <li>เปิด <b>กล้อง</b> ให้เป็นสีเขียว · <b>ตำแหน่ง</b> → <b>"ขณะใช้แอป"</b> และเปิด <b>"ตำแหน่งที่แน่นอน"</b></li>
+        <li>กลับมาที่ Chrome กด <b>⟳</b> มุมขวาบนของแอปลงเวลา → กดสแกน → ถ้าขึ้นถามให้กด <b>"อนุญาต"</b></li>
+        <li>ถ้าไม่มีคำว่า "กล้อง" ในหน้าตั้งค่า Chrome แปลว่า Chrome ยังไม่เคยขอกล้อง → กดสแกนใน Chrome 1 ครั้งก่อน แล้วกลับมาดูใหม่</li>
+      </ol></div>`;
+    const gDevice = ios ? `<div class="guide"><b>⚠ ถ้า Safari และ Chrome เปิดกล้องไม่ได้ทั้งคู่</b><ol>
+        <li>ลองเปิดแอป <b>กล้อง</b> ของ iPhone ว่าใช้ได้ไหม ถ้าไม่มีแอปกล้องหรือเปิดไม่ได้ = กล้องถูกล็อกที่ตัวเครื่อง</li>
+        <li><b>ตั้งค่า → เวลาหน้าจอ → ข้อจำกัดเนื้อหาและความเป็นส่วนตัว → แอปที่อนุญาต</b> → เปิด <b>"กล้อง"</b></li>
+        <li><b>ตั้งค่า → ความเป็นส่วนตัวและความปลอดภัย → โหมดล็อกดาวน์</b> → ปิด</li>
+        <li>ปิดแอปที่ใช้กล้องอยู่ (วิดีโอคอล, LINE, Facebook) แล้วปิด-เปิดเครื่องใหม่</li>
+        <li>มือถือของบริษัทที่มีการจัดการอุปกรณ์ (MDM) อาจถูกล็อกกล้องไว้ ต้องให้ฝ่าย IT ปลดล็อก</li>
+      </ol></div>` : '';
     openSheet(`
       <h2 class="sheet-title">ตั้งให้อนุญาตตำแหน่งและกล้องตลอด</h2>
       <p class="hint" style="margin-top:0">ตั้งครั้งเดียว มือถือจะไม่ถามสิทธิ์ซ้ำทุกครั้งที่สแกน · ต้องเปิด GPS ของมือถือไว้ด้วย</p>
+      ${iosChrome ? gIosChrome : ''}
       <div class="guide ${ios ? '' : 'first'}"><b>📱 Android (Chrome)</b><ol>
         <li>แตะไอคอน <b>🔒 หรือ ⓘ</b> หน้าช่องที่อยู่เว็บด้านบน → <b>สิทธิ์ (Permissions)</b></li>
         <li><b>ตำแหน่ง</b> → <b>อนุญาต</b> · <b>กล้อง</b> → <b>อนุญาต</b></li>
         <li>ถ้าติดตั้งแอปไว้ที่หน้าจอหลัก: <b>ตั้งค่ามือถือ → แอป → Chrome → สิทธิ์</b> → ตำแหน่ง <b>"อนุญาตขณะใช้แอป"</b> และเปิด <b>"ใช้ตำแหน่งที่แม่นยำ"</b>, กล้อง <b>"อนุญาตขณะใช้แอป"</b></li>
       </ol></div>
-      <div class="guide ${ios ? 'first' : ''}"><b>🍎 iPhone (Safari)</b><ol>
+      <div class="guide ${ios && !iosChrome ? 'first' : ''}"><b>🍎 iPhone (Safari)</b><ol>
         <li><b>ตั้งค่า → ความเป็นส่วนตัวและความปลอดภัย → บริการหาตำแหน่ง</b> → เปิด → <b>เว็บไซต์ Safari</b> → <b>"ขณะใช้แอป"</b> และเปิด <b>"ตำแหน่งที่แน่นอน"</b></li>
-        <li><b>ตั้งค่า → Safari</b> → เลื่อนลงที่ "การตั้งค่าสำหรับเว็บไซต์" → <b>กล้อง: อนุญาต</b> และ <b>ตำแหน่ง: อนุญาต</b></li>
-        <li>หรือในหน้าแอป แตะ <b>"AA"</b> ที่ช่องที่อยู่ → <b>การตั้งค่าเว็บไซต์</b> → กล้องและตำแหน่ง: <b>อนุญาต</b></li>
+        <li><b>ตั้งค่า → Safari</b> (iOS 18: ตั้งค่า → แอป → Safari) → เลื่อนลงที่ "การตั้งค่าสำหรับเว็บไซต์" → <b>กล้อง: อนุญาต</b> และ <b>ตำแหน่ง: อนุญาต</b></li>
+        <li>หรือในหน้าแอป แตะ <b>"AA"</b> หรือไอคอน <b>☰</b> ที่ช่องที่อยู่ → <b>การตั้งค่าเว็บไซต์</b> → กล้องและตำแหน่ง: <b>อนุญาต</b></li>
+        <li>ตั้งเสร็จแล้ว <b>ปิดแท็บนี้แล้วเปิดลิงก์ใหม่</b> (Safari จำค่าเดิมไว้จนกว่าจะเปิดหน้าใหม่)</li>
       </ol></div>
-      <button class="btn primary big" data-close>เข้าใจแล้ว</button>`);
+      ${ios && !iosChrome ? gIosChrome : ''}
+      ${gDevice}
+      <button class="btn ghost big" id="permDiag" style="margin-bottom:8px">📤 ทำครบแล้วยังไม่ได้? ส่งข้อมูลเครื่องให้ผู้ดูแล</button>
+      <button class="btn primary big" data-close>เข้าใจแล้ว</button>`).querySelector('#permDiag').onclick = () => sendCamDiag('เปิดสิทธิ์ตามขั้นตอนแล้วยังใช้กล้อง/ตำแหน่งไม่ได้');
   }
 
   // ---------- หน้าจอสแกนใบหน้า 5 วินาที ----------
@@ -1053,6 +1073,62 @@
     document.body.appendChild(inp);
   };
 
+  // เวลาที่ถ่ายจริงจากข้อมูล EXIF ในไฟล์รูป (นาฬิกาเครื่อง, ms) · ไม่มีข้อมูล = null
+  async function exifTakenAt(file) {
+    try {
+      const v = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+      if (v.getUint16(0) !== 0xffd8) return null;
+      let o = 2;
+      while (o + 10 < v.byteLength) {
+        const mk = v.getUint16(o);
+        if ((mk & 0xff00) !== 0xff00 || mk === 0xffda) return null;
+        const len = v.getUint16(o + 2);
+        if (mk === 0xffe1 && v.getUint32(o + 4) === 0x45786966) { // "Exif"
+          const t = o + 10;
+          const le = v.getUint16(t) === 0x4949;
+          const u16 = (q) => v.getUint16(t + q, le);
+          const u32 = (q) => v.getUint32(t + q, le);
+          const find = (ifd, tag) => { const n = u16(ifd); for (let i = 0; i < n; i++) if (u16(ifd + 2 + i * 12) === tag) return ifd + 2 + i * 12; return -1; };
+          const str = (e) => { const n = Math.min(u32(e + 4), 32); const off = n > 4 ? u32(e + 8) : e + 8; let r = ''; for (let i = 0; i < n; i++) r += String.fromCharCode(v.getUint8(t + off + i)); return r; };
+          const ifd0 = u32(4);
+          let when = '';
+          const ex = find(ifd0, 0x8769);
+          if (ex >= 0) { const d = find(u32(ex + 8), 0x9003); if (d >= 0) when = str(d); } // DateTimeOriginal
+          if (!when) { const d = find(ifd0, 0x0132); if (d >= 0) when = str(d); } // DateTime
+          const m = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/.exec(when);
+          return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : null;
+        }
+        o += 2 + len;
+      }
+    } catch { /* อ่านไม่ได้ */ }
+    return null;
+  }
+  // ข้อมูลวินิจฉัยกล้อง: ลองเปิดกล้องจริงแล้วจดผล → ใส่ในเรื่องแจ้งปัญหาให้ผู้ดูแล
+  let lastCamErr = null;
+  async function camDiag(why) {
+    const lines = [`สาเหตุที่ระบบพบ: ${why || '-'}`];
+    lines.push(`อุปกรณ์: ${deviceSummary()}`);
+    lines.push(`โหมด: ${IOS_STANDALONE ? 'ไอคอนหน้าจอหลัก' : IOS_WEBVIEW ? 'ในแอปอื่น (ไม่ใช่ Safari)' : IN_APP ? `ในแอป ${IN_APP}` : 'เบราว์เซอร์'} · ${window.isSecureContext ? 'https' : 'ไม่ปลอดภัย'}`);
+    lines.push(`mediaDevices: ${navigator.mediaDevices ? 'มี' : 'ไม่มี'} · getUserMedia: ${hasCameraApi() ? 'มี' : 'ไม่มี'}`);
+    for (const n of ['camera', 'geolocation']) lines.push(`สิทธิ์ ${n}: ${await (navigator.permissions?.query({ name: n }).then((x) => x.state).catch(() => '?')) || '?'}`);
+    if (lastCamErr) lines.push(`ผิดพลาดล่าสุด: ${lastCamErr.name || '?'} ${String(lastCamErr.message || '').slice(0, 120)}`);
+    if (hasCameraApi()) {
+      try {
+        const st = await withTimeout(navigator.mediaDevices.getUserMedia({ video: true, audio: false }), 10000);
+        lines.push(`ทดลองเปิดกล้อง: สำเร็จ (${st.getVideoTracks()[0]?.label || 'ไม่ทราบชื่อกล้อง'})`);
+        st.getTracks().forEach((x) => x.stop());
+      } catch (e) { lines.push(`ทดลองเปิดกล้อง: ไม่สำเร็จ ${e && e.name} ${String(e && e.message || '').slice(0, 120)}`); }
+      try { const ds = await navigator.mediaDevices.enumerateDevices(); lines.push(`กล้องที่พบ: ${ds.filter((d) => d.kind === 'videoinput').length}`); } catch { /* ไม่รองรับ */ }
+    }
+    lines.push(`UA: ${UA}`);
+    return lines.join('\n');
+  }
+  async function sendCamDiag(why) {
+    toast('กำลังตรวจกล้อง…');
+    const detail = await camDiag(why);
+    openProblemForm(token ? 'app' : 'register', { category: 'กล้อง/สแกนใบหน้า', title: 'เปิดกล้องไม่ได้', detail: `(ข้อมูลจากระบบ ไม่ต้องแก้)\n${detail}` });
+  }
+
   // ---------- ทางสำรอง: ถ่ายรูปด้วยแอปกล้องของเครื่อง (เมื่อหน้าเว็บเปิดกล้องสดไม่ได้) ----------
   // ใช้ได้ทุกเบราว์เซอร์/ทุกรุ่น · ประทับเวลาจากเซิร์ฟเวอร์และพิกัดเหมือนเดิม · ผู้ดูแลเห็นธง "ถ่ายด้วยแอปกล้องของเครื่อง" ให้ตรวจรูป
   function camFallback(mode, locationChoice, e) {
@@ -1068,11 +1144,13 @@
         <button class="btn primary big" id="nativeGo">📷 ถ่ายรูปด้วยกล้องของเครื่อง</button></div>
       <button class="btn ghost big" id="camRetry" style="margin-top:8px">ลองสแกนในหน้าเว็บอีกครั้ง</button>
       ${name === 'NotAllowedError' ? '<button class="btn ghost big" id="camPerm" style="margin-top:8px">วิธีเปิดสิทธิ์กล้อง</button>' : ''}
+      <button class="btn ghost big" id="camDiag" style="margin-top:8px">📤 ยังไม่ได้? ส่งข้อมูลเครื่องให้ผู้ดูแล</button>
       <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>
       <p class="hint pb-dev">ข้อมูลเครื่อง: ${esc(deviceSummary())} · ${esc(name || '-')}</p>`);
     el.querySelector('#nativeGo').onclick = () => runNativeScan(mode, locationChoice);
     el.querySelector('#camRetry').onclick = () => { closeSheet(); runScanner(mode, locationChoice); };
     el.querySelector('#camPerm')?.addEventListener('click', openPermGuide);
+    el.querySelector('#camDiag').onclick = () => sendCamDiag(why);
   }
   // ต้องเรียกจากการแตะปุ่มโดยตรง (มือถือเปิดกล้องได้เฉพาะตอนผู้ใช้แตะ)
   function runNativeScan(mode, locationChoice) {
@@ -1099,6 +1177,9 @@
           throw err;
         }
         if (file.lastModified && file.lastModified < tapAt - 60000) throw new Error('ต้องถ่ายรูปใหม่ตอนนี้เท่านั้น ใช้รูปเก่าในเครื่องไม่ได้');
+        // เวลาที่ถ่ายจริงในไฟล์ (EXIF) ต้องหลังกดปุ่ม → กันเลือกรูปเก่าจากคลังรูป
+        const takenAt = await exifTakenAt(file);
+        if (takenAt && takenAt < tapAt - 60000) throw new Error('รูปนี้ถ่ายไว้ก่อนแล้ว ต้องถ่ายรูปใหม่ตอนนี้เท่านั้น ใช้รูปจากคลังรูปไม่ได้');
         const src = await imageFileToCanvas(file, 1280);
         if (Math.min(src.width, src.height) < 240) throw new Error('รูปเล็กเกินไป กรุณาถ่ายใหม่');
         say('กำลังตรวจใบหน้าในรูป…');
@@ -1143,7 +1224,7 @@
             nonce: cap.nonce, elapsed_ms: Math.round(elapsed), photo, thumb: tc.toDataURL('image/jpeg', 0.7),
             lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, gps_samples: samples, gps_pos_age_ms: Math.round(fix.got - fix.at),
             face_check: faceCheck === 'ok' ? 'ok' : 'unavailable', face_ratio: faceCheck === 'ok' ? 1 : 0,
-            camera_label: 'native-camera', capture_mode: 'native', touch: navigator.maxTouchPoints > 0, location_choice: locationChoice,
+            camera_label: 'native-camera', capture_mode: 'native', photo_time: takenAt ? 'exif' : 'none', touch: navigator.maxTouchPoints > 0, location_choice: locationChoice,
           },
           verify: cap.verify_code,
         });
