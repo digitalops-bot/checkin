@@ -613,6 +613,111 @@
     await load();
   }
 
+  // ---------- หลักฐานที่ผู้ดูแลแนบให้ (พนักงานไม่ได้แนบมา) · ทุกคนดูได้ · แนบ/ลบได้เฉพาะเจ้าของระบบ ----------
+  const ATT = {}; // kind -> Map(ref_id -> [ไฟล์])
+  let attReload = () => go(page); // หน้าที่เปิดอยู่ตั้งเป็นฟังก์ชันโหลดของตัวเอง
+  async function loadAtt(kind) {
+    const m = new Map();
+    try {
+      (await api(`/api/admin/attachments?kind=${kind}`)).items.forEach((a) => { if (!m.has(a.ref_id)) m.set(a.ref_id, []); m.get(a.ref_id).push(a); });
+    } catch { /* โหลดไม่ได้ก็แสดงรายการหลักต่อได้ */ }
+    ATT[kind] = m;
+    return m;
+  }
+  const attFiles = (kind, id) => (ATT[kind] && ATT[kind].get(Number(id))) || [];
+  const attHtml = (kind, id, compact = false) => {
+    const list = attFiles(kind, id);
+    const owner = ME.role === 'owner';
+    if (!list.length && !owner) return '';
+    return `<div class="att${compact ? ' compact' : ''}">
+      ${list.length ? `<div class="att-files">${list.map((a) => `<span class="att-item" title="แนบโดย ${esc(a.added_by)} · ${esc(thDateTime(a.created_at))}${a.note ? ` · ${esc(a.note)}` : ''}">
+        ${a.ftype === 'pdf' ? `<button type="button" class="att-pdf" data-att-pdf="${esc(a.file)}">📄<span>PDF</span></button>` : `<canvas class="att-img" data-photo="${esc(a.file)}" data-att-img="${esc(a.file)}"></canvas>`}
+        ${owner ? `<button type="button" class="att-x" data-att-del="${a.id}" aria-label="ลบไฟล์นี้">×</button>` : ''}</span>`).join('')}</div>
+        <div class="sub att-by">📎 ผู้ดูแลแนบ ${list.length} ไฟล์${list.some((a) => a.note) ? ` · ${esc(list.filter((a) => a.note).map((a) => a.note).join(' / '))}` : ''}</div>` : ''}
+      ${owner && list.length < 5 ? `<button type="button" class="btn ghost sm att-add" data-att-add="${kind}:${id}">＋ แนบหลักฐาน</button>` : ''}</div>`;
+  };
+  // ย่อรูปให้เป็น JPEG ไม่เกิน 1800px
+  const fileToJpeg = (file) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1800 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k));
+      c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, c.width, c.height);
+      g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      let q = 0.88;
+      let d = c.toDataURL('image/jpeg', q);
+      while (d.length > 2500000 && q > 0.4) { q -= 0.1; d = c.toDataURL('image/jpeg', q); }
+      resolve(d);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('เปิดไฟล์รูปนี้ไม่ได้ กรุณาเลือกรูป JPG/PNG')); };
+    img.src = url;
+  });
+  function attAdd(kind, id) {
+    openModal(`<h2 style="margin:0 40px 6px 0">แนบหลักฐาน</h2>
+      <p class="sub">แนบรูปหรือ PDF แทนพนักงาน เช่น ใบลงเวลา, แชตยืนยันจากหัวหน้างาน · ระบบบันทึกว่าแนบโดย <b>${esc(ME.name)}</b></p>
+      <form id="attf" class="del-form">
+        <label class="btn ghost att-pick"><input type="file" id="attFile" accept="image/*,application/pdf,.pdf" hidden>📎 เลือกไฟล์รูปหรือ PDF</label>
+        <div id="attPrev" class="att-prev"></div>
+        <label class="field"><span>หมายเหตุ <small>(ไม่บังคับ)</small></span><input name="note" maxlength="200" placeholder="เช่น ใบลงเวลาจากหัวหน้างาน"></label>
+        <div class="row"><button type="submit" class="btn primary" id="attSave" disabled>บันทึกหลักฐาน</button><button type="button" class="btn ghost" id="attCancel">ยกเลิก</button></div>
+      </form>`);
+    const f = document.getElementById('attf');
+    const prev = document.getElementById('attPrev');
+    const save = document.getElementById('attSave');
+    let data = '';
+    let name = '';
+    document.getElementById('attCancel').onclick = closeModal;
+    document.getElementById('attFile').onchange = async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+          if (file.size > 4 * 1024 * 1024) throw new Error('ไฟล์ PDF ใหญ่เกิน 4 MB');
+          data = (await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(new Error('อ่านไฟล์ไม่ได้')); r.readAsDataURL(file); }))
+            .replace(/^data:[^;]*;base64,/, 'data:application/pdf;base64,');
+          prev.innerHTML = `<div class="att-prev-pdf">📄 ${esc(file.name)}</div>`;
+        } else if (!file.type || /^image\//.test(file.type)) {
+          data = await fileToJpeg(file);
+          prev.innerHTML = `<img src="${data}" alt="">`;
+        } else throw new Error('แนบได้เฉพาะรูปภาพหรือ PDF');
+        name = file.name;
+        save.disabled = false;
+      } catch (err) { data = ''; save.disabled = true; prev.innerHTML = ''; toast(err.message, true); }
+    };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!data) return;
+      save.disabled = true;
+      save.textContent = 'กำลังอัปโหลด…';
+      try {
+        await api('/api/admin/attachments', { body: { kind, ref_id: Number(id), file: data, name, note: f.note.value.trim() } });
+        closeModal();
+        toast('แนบหลักฐานแล้ว');
+        attReload();
+      } catch (err) { toast(err.message, true); save.disabled = false; save.textContent = 'บันทึกหลักฐาน'; }
+    };
+  }
+  document.addEventListener('click', async (e) => {
+    const add = e.target.closest('[data-att-add]');
+    if (add) { const [k, id] = add.dataset.attAdd.split(':'); return attAdd(k, id); }
+    const img = e.target.closest('[data-att-img]');
+    if (img) return showPhoto(img.dataset.attImg);
+    const pdf = e.target.closest('[data-att-pdf]');
+    if (pdf) return showPdf(pdf.dataset.attPdf);
+    const del = e.target.closest('[data-att-del]');
+    if (del) {
+      if (!confirm('ลบไฟล์หลักฐานนี้? ลบแล้วกู้คืนไม่ได้')) return;
+      try { await api(`/api/admin/attachments/${del.dataset.attDel}`, { method: 'DELETE' }); toast('ลบไฟล์แล้ว'); closeModal(); attReload(); } catch (err) { toast(err.message, true); }
+    }
+  });
+
   // ---------- ลืมสแกน: ตรวจคำขอบันทึกเวลาย้อนหลัง ----------
   const SR_TH = { pending: 'รอตรวจสอบ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ' };
   const srTimes = (i, o) => [i && `เข้า ${esc(i)}`, o && `ออก ${esc(o)}`].filter(Boolean).join(' · ') || '–';
@@ -627,7 +732,9 @@
         const [inRange, pend] = await Promise.all([
           api(`/api/admin/scan-requests?${qs()}`),
           filter.status && filter.status !== 'pending' ? Promise.resolve({ items: [] }) : api('/api/admin/scan-requests?status=pending'),
+          loadAtt('scan_request'),
         ]);
+        attReload = load;
         const seen = new Set();
         items = [...pend.items, ...inRange.items].filter((r) => (seen.has(r.id) ? false : seen.add(r.id)));
         const t = document.getElementById('tbl');
@@ -643,12 +750,13 @@
             <td class="nowrap">${esc(r.shift_name || '-')}</td>
             <td class="nowrap t-time">${srTimes(r.req_in, r.req_out)}${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">บันทึกจริง ${srTimes(r.approved_in, r.approved_out)}</div>` : ''}</td>
             <td class="nowrap">${srTimes(r.now_in, r.now_out)}</td>
-            <td>${r.evidence ? `<button type="button" class="btn ghost sm" data-evi="${esc(r.evidence)}">📎 ดูรูป</button>` : '<span class="badge pending" title="พนักงานไม่ได้แนบรูปหลักฐาน">ไม่มีหลักฐาน</span>'}</td>
+            <td>${r.evidence ? `<button type="button" class="btn ghost sm" data-evi="${esc(r.evidence)}">📎 ดูรูป</button>` : attFiles('scan_request', r.id).length ? '' : '<span class="badge pending" title="พนักงานไม่ได้แนบรูปหลักฐาน">ไม่มีหลักฐาน</span>'}${attHtml('scan_request', r.id, true)}</td>
             <td>${esc(r.reason) || '<span class="muted">–</span>'}${r.review_note ? `<div class="sub"><b>ผู้ดูแล${r.reviewed_by ? ` (${esc(r.reviewed_by)})` : ''}:</b> ${esc(r.review_note)}</div>` : r.reviewed_by ? `<div class="sub">โดย ${esc(r.reviewed_by)}</div>` : ''}</td>
             <td><span class="badge ${r.status}">${SR_TH[r.status]}</span></td>
             <td><div class="act">${r.status === 'pending' ? `<button class="btn ok sm" data-srok="${r.id}">ตรวจ/อนุมัติ</button><button class="btn danger sm" data-srno="${r.id}">ไม่อนุมัติ</button>` : '<span class="sub">พิจารณาแล้ว</span>'}</div></td>
           </tr>`).join('')}</tbody></table></div>
           <div class="table-foot"><span>${items.length} รายการ · รอตรวจ ${items.filter((r) => r.status === 'pending').length}</span><span class="sub">อนุมัติแล้ว ระบบบันทึกเวลาลงการลงเวลาให้อัตโนมัติ (ไม่มีรูปสแกน)</span></div></div>`;
+        hydratePhotos(t);
         t.querySelectorAll('[data-evi]').forEach((b) => (b.onclick = () => showPhoto(b.dataset.evi)));
         t.querySelectorAll('[data-srok]').forEach((b) => (b.onclick = () => srApprove(items.find((x) => String(x.id) === b.dataset.srok), load)));
         t.querySelectorAll('[data-srno]').forEach((b) => (b.onclick = () => srReject(items.find((x) => String(x.id) === b.dataset.srno), load)));
@@ -663,7 +771,10 @@
       สถานที่ทำงาน: <b>${esc(r.location || '(ไม่ได้ระบุ)')}</b><br>
       ขอบันทึก <b>${srTimes(r.req_in, r.req_out)}</b> น. · สแกนจริงตอนนี้ ${srTimes(r.now_in, r.now_out)}<br>
       เหตุผล: ${esc(r.reason) || '<span class="muted">(ไม่ได้ระบุ)</span>'}</div>
-    ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>` : '<div class="no-photo">⚠ พนักงานไม่ได้แนบรูปหลักฐาน — ตรวจสอบกับหัวหน้างานหรือใบลงเวลาก่อนอนุมัติ</div>'}`;
+    ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>`
+    : attFiles('scan_request', r.id).length ? '<div class="sub">พนักงานไม่ได้แนบรูป · หลักฐานที่ผู้ดูแลแนบ (คลิกเพื่อดูรูปใหญ่):</div>'
+      : '<div class="no-photo">⚠ พนักงานไม่ได้แนบรูปหลักฐาน — ตรวจสอบกับหัวหน้างานหรือใบลงเวลาก่อนอนุมัติ</div>'}
+    ${attHtml('scan_request', r.id)}`;
   function srApprove(r, reload) {
     openModal(`<h2 style="margin:0 40px 10px 0">ตรวจคำขอลืมสแกน</h2>${srHeader(r)}
       <form id="srf" class="del-form" style="margin-top:12px">
@@ -749,6 +860,7 @@
       ${r.files.length ? `<div class="pb-a-files">${r.files.map((f) => (f.t === 'pdf'
     ? `<button type="button" class="pb-a-pdf" data-pbpdf="${esc(f.f)}" title="เปิดไฟล์ PDF">📄<span>PDF</span></button>`
     : `<canvas class="pb-a-img" data-photo="${esc(f.f)}" data-open="${esc(f.f)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>`)).join('')}</div>` : ''}
+      ${attHtml('problem', r.id)}
       <div class="pb-a-who">${pbWho(r)}${r.device ? `<div class="sub pb-a-dev">📱 ${esc(r.device)}</div>` : ''}</div>
       ${r.status === 'in_progress' ? `<div class="pb-reply">🛠️ <b>${esc(r.taken_by)}</b> รับเรื่องเมื่อ ${esc(thDateTime(r.taken_at))}</div>` : ''}
       ${r.status === 'resolved' ? `<div class="pb-reply ok">✅ แก้ไขแล้วโดย <b>${esc(r.resolved_by)}</b> เมื่อ ${esc(thDateTime(r.resolved_at))}${r.resolve_note ? `<p>${esc(r.resolve_note)}</p>` : ''}<div class="sub">ระบบจะลบเรื่องนี้อัตโนมัติ ${esc(thDateTime(r.expires_at))}</div></div>` : ''}
@@ -772,8 +884,9 @@
       mark();
       const my = ++seq; // กดเปลี่ยนแท็บเร็วๆ: แสดงเฉพาะผลของครั้งล่าสุด
       try {
-        const d = await api(`/api/admin/problems${PB_TH[pbView] ? `?status=${pbView}` : ''}`);
+        const [d] = await Promise.all([api(`/api/admin/problems${PB_TH[pbView] ? `?status=${pbView}` : ''}`), loadAtt('problem')]);
         if (my !== seq) return;
+        attReload = load;
         items = pbView === 'active' ? d.items.filter((x) => x.status !== 'resolved') : d.items;
         const box = document.getElementById('pbList');
         if (!box) return;
@@ -882,7 +995,8 @@
       ${filterBar({ status: true, exportKind: 'ot' })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
     const load = async () => {
       try {
-        const { items } = await api(`/api/admin/ot?${qs()}`);
+        const [{ items }] = await Promise.all([api(`/api/admin/ot?${qs()}`), loadAtt('ot')]);
+        attReload = load;
         api('/api/admin/dashboard').then((d) => setPending(d.pending)).catch(() => {});
         const t = document.getElementById('tbl');
         if (!t) return;
@@ -901,7 +1015,7 @@
                 <td class="nowrap t-time">${esc(o.start_time)}–${esc(o.end_time)}</td>
                 <td class="num">${num(o.hours)}</td>
                 <td>${o.check ? `<span class="ot-check ${o.check.ok ? 'ok' : 'bad'}">${o.check.ok ? '✓' : '⚠'} ${esc(o.check.text)}</span>` : ''}</td>
-                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub"><b>เหตุผล${o.reviewed_by ? ` (${esc(o.reviewed_by)})` : ''}:</b> ${esc(o.review_note)}</div>` : ''}</td>
+                <td>${esc(o.note) || '<span class="muted">–</span>'}${o.review_note ? `<div class="sub"><b>เหตุผล${o.reviewed_by ? ` (${esc(o.reviewed_by)})` : ''}:</b> ${esc(o.review_note)}</div>` : ''}${attHtml('ot', o.id, true)}</td>
                 <td><span class="badge ${o.status}">${STATUS_TH[o.status]}</span></td>
                 <td><div class="act">
                   ${o.status !== 'approved' ? `<button class="btn ok sm" data-st="approved" data-id="${o.id}">อนุมัติ</button>` : ''}
@@ -914,6 +1028,7 @@
               <span>${items.length} รายการ · อนุมัติแล้ว ${num(sumBy('approved'))} ชม. · รออนุมัติ ${num(sumBy('pending'))} ชม.</span>
               <span class="act"><button class="btn ok sm" id="bulkOk" disabled>อนุมัติที่เลือก</button><button class="btn danger sm" id="bulkNo" disabled>ไม่อนุมัติที่เลือก</button></span>
             </div></div>`;
+        hydratePhotos(t);
         const sels = [...t.querySelectorAll('.sel')];
         const updBulk = () => { const n = sels.filter((s) => s.checked).length; t.querySelector('#bulkOk').disabled = t.querySelector('#bulkNo').disabled = !n; };
         t.querySelector('#all').onchange = (e) => { sels.forEach((s) => (s.checked = e.target.checked)); updBulk(); };
@@ -1357,17 +1472,19 @@
       ${filterBar({ status: true })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
     const load = async () => {
       try {
-        const { items } = await api(`/api/admin/appeals?${qs()}`);
+        const [{ items }] = await Promise.all([api(`/api/admin/appeals?${qs()}`), loadAtt('appeal')]);
+        attReload = load;
         const t = document.getElementById('tbl');
         if (!t) return;
         if (!items.length) { t.innerHTML = '<div class="card empty">ไม่มีคำร้องในช่วงนี้</div>'; return; }
         t.innerHTML = `<div class="card table-card"><div class="table-wrap"><table>
-          <thead><tr><th>วันที่</th><th>ชื่อ</th><th>ปัญหาของวันนั้น</th><th>เหตุผล / รายละเอียด</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
+          <thead><tr><th>วันที่</th><th>ชื่อ</th><th>ปัญหาของวันนั้น</th><th>เหตุผล / รายละเอียด</th><th>หลักฐาน</th><th>สถานะ</th><th class="num">จัดการ</th></tr></thead>
           <tbody>${items.map((a) => `<tr>
             <td class="nowrap">${esc(thDate(a.work_date))}<div class="sub">ส่ง ${esc(thDateTime(a.created_at))}</div></td>
             <td>${nameCell(a.employee_id, a.name, a.emp_code)}</td>
             <td><span class="sub" style="color:var(--bad)">${esc(a.issues || '-')}</span></td>
             <td><b>${esc(a.reason)}</b><div>${esc(a.note)}</div>${a.review_note || a.reviewed_by ? `<div class="sub">ผู้ดูแล${a.reviewed_by ? ` (${esc(a.reviewed_by)})` : ''}: ${esc(a.review_note || '-')}</div>` : ''}</td>
+            <td>${attHtml('appeal', a.id, true) || '<span class="muted">–</span>'}</td>
             <td><span class="badge ${a.status}">${APPEAL_TH[a.status]}</span></td>
             <td><div class="act">
               ${a.status !== 'approved' ? `<button class="btn ok sm" data-id="${a.id}" data-st="approved">อนุมัติ</button>` : ''}
@@ -1376,6 +1493,7 @@
               <button class="btn ghost sm" data-delap="${a.id}">ลบ</button>
             </div></td></tr>`).join('')}</tbody></table></div>
           <div class="table-foot"><span>${items.length} รายการ</span></div></div>`;
+        hydratePhotos(t);
         t.querySelectorAll('[data-st]').forEach((b) => (b.onclick = () => decideAppeal(b.dataset.id, b.dataset.st, load)));
         t.querySelectorAll('[data-delap]').forEach((b) => (b.onclick = async () => {
           if (!confirm('ลบคำร้องนี้? (วันนั้นจะกลับเป็นสีตามข้อมูลการสแกนจริง)')) return;
