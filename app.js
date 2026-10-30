@@ -21,6 +21,22 @@
     }
   } catch { /* เบราว์เซอร์ไม่ให้แก้ */ }
   const hasCameraApi = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const IOS_VER = (() => { const m = /OS (\d+)_(\d+)/.exec(UA); return m ? Number(m[1]) + Number(m[2]) / 100 : 0; })();
+  const IOS_OTHER = IS_IOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(UA) ? (/CriOS/.test(UA) ? 'Chrome' : /FxiOS/.test(UA) ? 'Firefox' : /EdgiOS/.test(UA) ? 'Edge' : 'Opera') : '';
+  const IOS_STANDALONE = IS_IOS && navigator.standalone === true; // เปิดจากไอคอนบนหน้าจอหลัก
+  // หน้าเว็บที่เปิดในแอปอื่น (Telegram, Gmail ฯลฯ) หน้าตาเหมือน Safari แต่ไม่มีคำว่า Safari ใน UA
+  const IOS_WEBVIEW = IS_IOS && !IN_APP && !IOS_OTHER && !IOS_STANDALONE && !/Safari\//.test(UA);
+  // สาเหตุที่เว็บใช้กล้องไม่ได้ (บอกให้ตรงกับเครื่องจริง ไม่บอก "เปิดใน Safari" กับคนที่อยู่ใน Safari แล้ว)
+  function noCamReason() {
+    const v = IOS_VER ? ` (iOS ${IOS_VER.toFixed(2).replace(/\.?0+$/, '')})` : '';
+    if (IN_APP) return { text: `คุณเปิดลิงก์จากในแอป ${IN_APP} ซึ่งไม่อนุญาตให้เว็บใช้กล้อง`, fix: 'browser' };
+    if (IOS_OTHER) return { text: `${IOS_OTHER} บน iPhone เครื่องนี้${v} ใช้กล้องในเว็บไม่ได้ (ต้องเป็น iOS 14.3 ขึ้นไป)`, fix: 'browser' };
+    if (IOS_STANDALONE) return { text: `เปิดจากไอคอนบนหน้าจอหลัก ซึ่ง iPhone เครื่องนี้${v} ไม่ให้ใช้กล้องในโหมดนี้`, fix: 'safari-app' };
+    if (IOS_WEBVIEW) return { text: 'หน้านี้เปิดอยู่ในแอปอื่น (เช่น Telegram, Gmail, Facebook) ไม่ใช่ Safari โดยตรง แม้หน้าตาจะคล้าย Safari', fix: 'browser' };
+    if (IS_IOS && IOS_VER && IOS_VER < 11) return { text: `iPhone เครื่องนี้${v} เก่าเกินไป Safari ใช้กล้องในเว็บได้ตั้งแต่ iOS 11`, fix: 'update' };
+    if (IS_IOS) return { text: `Safari ในเครื่องนี้${v} ถูกตั้งค่าปิดกล้องสำหรับเว็บไว้ (เช่น เวลาหน้าจอ หรือโหมดล็อกดาวน์)`, fix: 'ios-settings' };
+    return { text: 'เบราว์เซอร์นี้ไม่อนุญาตให้เว็บใช้กล้อง', fix: 'browser' };
+  }
   const deviceOs = () => (IS_IOS ? `iPhone/iPad iOS ${(/OS (\d+)_(\d+)/.exec(UA) || []).slice(1).join('.') || '?'}` : (/Android ([\d.]+)/.exec(UA) || [])[1] ? `Android ${(/Android ([\d.]+)/.exec(UA) || [])[1]}` : 'คอมพิวเตอร์/อื่นๆ');
   const deviceBrowser = () => (IN_APP ? `ในแอป ${IN_APP}` : /CriOS|Chrome\//.test(UA) && !/Edg|SamsungBrowser|OPR/.test(UA) ? 'Chrome' : /SamsungBrowser/.test(UA) ? 'Samsung Internet' : /FxiOS|Firefox/.test(UA) ? 'Firefox' : /EdgiOS|Edg\//.test(UA) ? 'Edge' : /Safari/.test(UA) ? 'Safari' : 'อื่นๆ');
   const deviceSummary = () => {
@@ -472,39 +488,49 @@
   }
   // จัดการเมื่อเปิดกล้องไม่ได้: บอกสาเหตุและวิธีแก้ให้ชัด
   function cameraError(e) {
-    if (e && (e.name === 'NoCameraApi' || (IN_APP && e.name === 'NotAllowedError'))) return showCameraHelp();
+    if (e && (e.name === 'NoCameraApi' || ((IN_APP || IOS_WEBVIEW) && e.name === 'NotAllowedError'))) return showCameraHelp();
     if (e && e.name === 'NotAllowedError') return toast('ไม่ได้อนุญาตให้ใช้กล้อง กรุณาเปิดสิทธิ์กล้องให้แอปนี้ในการตั้งค่า', true);
     if (e && e.name === 'NotReadableError') return toast('กล้องถูกแอปอื่นใช้อยู่ กรุณาปิดแอปกล้อง/วิดีโอคอลแล้วลองใหม่', true);
     if (e && e.name === 'NotFoundError') return toast('ไม่พบกล้องในอุปกรณ์นี้', true);
     return toast('เปิดกล้องไม่ได้ กรุณาลองใหม่', true);
   }
   const appUrl = () => `${location.origin}${location.pathname}`;
-  function showCameraHelp() {
-    // Chrome/Firefox/Edge บน iPhone ใช้กล้องในเว็บได้เฉพาะ iOS 14.3 ขึ้นไป (Safari ได้ตั้งแต่ iOS 11)
-    const iosVer = (/OS (\d+)_(\d+)/.exec(UA) || []).slice(1).join('.');
-    const iosOther = IS_IOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(UA) ? (/CriOS/.test(UA) ? 'Chrome' : /FxiOS/.test(UA) ? 'Firefox' : /EdgiOS/.test(UA) ? 'Edge' : 'Opera') : '';
-    const where = IN_APP ? `คุณเปิดลิงก์จากในแอป <b>${esc(IN_APP)}</b> ซึ่งไม่อนุญาตให้เว็บใช้กล้อง`
-      : iosOther ? `<b>${iosOther}</b> บน iPhone เครื่องนี้${iosVer ? ` (iOS ${esc(iosVer)})` : ''} ใช้กล้องในเว็บไม่ได้ (ต้องเป็น iOS 14.3 ขึ้นไป)`
-        : 'เบราว์เซอร์นี้ไม่อนุญาตให้เว็บใช้กล้อง';
-    const steps = IS_IOS
-      ? `<li>${iosOther ? 'กด <b>คัดลอกลิงก์</b> ด้านล่าง → เปิดแอป <b>Safari</b> (เข็มทิศสีฟ้า) → วางลิงก์ในช่องที่อยู่ → เข้าสู่ระบบ' : 'กดปุ่ม <b>⋯</b> หรือ <b>⤴︎</b> (มุมขวาบน/ล่าง) → เลือก <b>"เปิดใน Safari"</b> (Open in Safari / Open in Browser)'}</li>
-         <li>หรือกด <b>คัดลอกลิงก์</b> ด้านล่าง แล้วเปิดแอป <b>Safari</b> วางลิงก์ในช่องที่อยู่</li>
-         <li>หรืออัปเดต iPhone (ตั้งค่า → ทั่วไป → รายการอัปเดตซอฟต์แวร์) และอัปเดตแอป Chrome แล้วลองใหม่ <b>แนะนำใช้ Safari</b> ใช้ได้ทุกรุ่น</li>`
-      : `<li>กดปุ่ม <b>⋮</b> มุมขวาบน → เลือก <b>"เปิดใน Chrome"</b> (Open in browser) หรือกดปุ่มด้านล่าง</li>
-         <li>หรือกด <b>คัดลอกลิงก์</b> แล้วเปิดแอป <b>Chrome</b> วางลิงก์ในช่องที่อยู่</li>`;
+  function showCameraHelp(nativeGo) {
+    const why = noCamReason();
+    const steps = why.fix === 'ios-settings'
+      ? `<li>ถ้าเปิดลิงก์มาจาก<b>แอปอื่น</b> (Telegram, LINE, Gmail, Facebook) หน้าอาจดูเหมือน Safari แต่ไม่ใช่ → กด <b>คัดลอกลิงก์</b> ด้านล่าง แล้วเปิด<b>แอป Safari</b> (เข็มทิศสีฟ้า) วางลิงก์</li>
+         <li><b>ตั้งค่า → เวลาหน้าจอ → ข้อจำกัดเนื้อหาและความเป็นส่วนตัว → แอปที่อนุญาต</b> → เปิด <b>"กล้อง"</b> (ถ้าปิดอยู่ เว็บจะใช้กล้องไม่ได้เลย)</li>
+         <li><b>ตั้งค่า → ความเป็นส่วนตัวและความปลอดภัย → โหมดล็อกดาวน์</b> → ถ้าเปิดอยู่ ให้ปิด หรือยกเว้นเว็บไซต์นี้</li>
+         <li><b>ตั้งค่า → Safari → กล้อง</b> → เลือก <b>"ถาม"</b> หรือ <b>"อนุญาต"</b> แล้วกด ⟳ มุมขวาบน</li>
+         <li>ปิดแท็บนี้ ปิด-เปิดเครื่องใหม่ แล้วเปิดลิงก์ใน Safari อีกครั้ง</li>`
+      : why.fix === 'safari-app'
+        ? `<li>เปิด<b>แอป Safari</b> (เข็มทิศสีฟ้า) แทนการกดไอคอนบนหน้าจอหลัก</li>
+           <li>กด <b>คัดลอกลิงก์</b> ด้านล่าง แล้ววางในช่องที่อยู่ของ Safari → เข้าสู่ระบบ</li>
+           <li>หรืออัปเดต iPhone (ตั้งค่า → ทั่วไป → รายการอัปเดตซอฟต์แวร์) แล้วใช้ไอคอนบนหน้าจอหลักได้ตามเดิม</li>`
+        : why.fix === 'update'
+          ? '<li>อัปเดต iPhone: <b>ตั้งค่า → ทั่วไป → รายการอัปเดตซอฟต์แวร์</b></li><li>ถ้าอัปเดตไม่ได้ ใช้ปุ่มถ่ายรูปด้วยกล้องของเครื่องด้านล่างแทน</li>'
+          : IS_IOS
+            ? `<li>${IOS_OTHER ? 'กด <b>คัดลอกลิงก์</b> ด้านล่าง → เปิดแอป <b>Safari</b> (เข็มทิศสีฟ้า) → วางลิงก์ในช่องที่อยู่ → เข้าสู่ระบบ' : 'กดปุ่ม <b>⋯</b> หรือ <b>⤴︎</b> หรือไอคอน <b>เข็มทิศ</b> (มุมขวาบน/ล่าง) → เลือก <b>"เปิดใน Safari"</b> (Open in Safari / Open in Browser)'}</li>
+               <li>หรือกด <b>คัดลอกลิงก์</b> ด้านล่าง แล้วเปิดแอป <b>Safari</b> วางลิงก์ในช่องที่อยู่</li>
+               <li>หรืออัปเดต iPhone และแอปที่ใช้อยู่ แล้วลองใหม่ <b>แนะนำใช้ Safari</b></li>`
+            : `<li>กดปุ่ม <b>⋮</b> มุมขวาบน → เลือก <b>"เปิดใน Chrome"</b> (Open in browser) หรือกดปุ่มด้านล่าง</li>
+               <li>หรือกด <b>คัดลอกลิงก์</b> แล้วเปิดแอป <b>Chrome</b> วางลิงก์ในช่องที่อยู่</li>`;
     const el = openSheet(`
-      <h2 class="sheet-title">เปิดกล้องไม่ได้</h2>
-      <p class="muted">${where} กรุณาเปิดลิงก์นี้ใน${IS_IOS ? ' <b>Safari</b>' : ' <b>Chrome</b>'} แทน</p>
+      <h2 class="sheet-title">เปิดกล้องในหน้าเว็บไม่ได้</h2>
+      <p class="muted">${esc(why.text)}</p>
+      ${nativeGo ? '<div class="native-box"><b>📷 ลงเวลาได้เลยตอนนี้</b><p>ใช้กล้องของมือถือถ่ายรูปหน้าตรงแทน ระบบประทับเวลาจริงและพิกัดให้เหมือนเดิม (ผู้ดูแลจะตรวจรูปนี้)</p><button class="btn primary big" id="nativeGo">📷 ถ่ายรูปด้วยกล้องของเครื่อง</button></div><b class="cam-help-sub">หรือแก้ให้สแกนในหน้าเว็บได้ตามปกติ:</b>' : ''}
       <ol class="cam-help">${steps}</ol>
       <div class="cam-help-actions">
         ${!IS_IOS && /Android/i.test(UA) ? `<a class="btn primary" href="intent://${esc(location.host + location.pathname)}#Intent;scheme=https;package=com.android.chrome;end">เปิดใน Chrome</a>` : ''}
         <button class="btn ${IS_IOS ? 'primary' : 'ghost'}" id="copyAppUrl">คัดลอกลิงก์</button>
         <button class="btn ghost" data-close>ปิด</button>
       </div>
-      <p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>
-      ${token ? '<button class="btn ghost big" id="camToForgot">📝 สแกนไม่ได้ตอนนี้? ขอบันทึกเวลา (แนบรูปใบลงเวลา)</button>' : ''}
-      <button class="btn ghost big" id="camToProblem" style="margin-top:8px">🆘 ทำตามแล้วยังไม่ได้? แจ้งผู้ดูแล</button>`);
-    el.querySelector('#camToProblem').onclick = () => openProblemForm(token ? 'app' : 'register', { category: 'กล้อง/สแกนใบหน้า' });
+      ${!IS_IOS || IOS_VER >= 13.4 ? '<p class="hint">เปิดใน Safari/Chrome แล้วกด "เพิ่มลงในหน้าจอหลัก" ครั้งต่อไปเปิดจากไอคอนได้เลย</p>' : ''}
+      ${token && !nativeGo ? '<button class="btn ghost big" id="camToForgot">📝 สแกนไม่ได้ตอนนี้? ขอบันทึกเวลา (แนบรูปใบลงเวลา)</button>' : ''}
+      <button class="btn ghost big" id="camToProblem" style="margin-top:8px">🆘 ทำตามแล้วยังไม่ได้? แจ้งผู้ดูแล</button>
+      <p class="hint pb-dev">ข้อมูลเครื่อง (ถ่ายภาพหน้าจอส่งผู้ดูแลได้): ${esc(deviceSummary())} · กล้องเว็บ ${hasCameraApi() ? 'มี' : 'ไม่มี'} · ${IOS_STANDALONE ? 'ไอคอนหน้าจอหลัก' : IOS_WEBVIEW ? 'ในแอปอื่น' : 'เบราว์เซอร์'} · ${window.isSecureContext ? 'https' : 'ไม่ปลอดภัย'}</p>`);
+    el.querySelector('#nativeGo')?.addEventListener('click', nativeGo || (() => {}));
+    el.querySelector('#camToProblem').onclick = () => openProblemForm(token ? 'app' : 'register', { category: 'กล้อง/สแกนใบหน้า', detail: `ระบบแจ้งว่า: ${why.text}\n` });
     el.querySelector('#camToForgot')?.addEventListener('click', () => { closeSheet(); renderForgotScan(); });
     el.querySelector('#copyAppUrl').onclick = async () => {
       try { await navigator.clipboard.writeText(appUrl()); toast('คัดลอกลิงก์แล้ว นำไปวางใน ' + (IS_IOS ? 'Safari' : 'Chrome')); }
@@ -513,9 +539,7 @@
   }
   // แถบเตือนล่วงหน้า (ก่อนกดสแกน/ถ่ายรูป) ถ้าเบราว์เซอร์นี้ใช้กล้องไม่ได้
   const cameraBanner = () => ((IN_APP && IS_IOS) || !hasCameraApi()
-    ? `<div class="cam-warn">⚠ ${IN_APP ? `เปิดจากในแอป ${esc(IN_APP)} จะใช้กล้องไม่ได้`
-      : IS_IOS && /CriOS|FxiOS|EdgiOS|OPiOS/.test(UA) ? 'เบราว์เซอร์นี้บน iPhone เครื่องนี้ใช้กล้องไม่ได้ กรุณาเปิดใน Safari'
-        : 'เบราว์เซอร์นี้ใช้กล้องไม่ได้'} <button type="button" class="linkbtn" data-cam-help>วิธีแก้</button></div>`
+    ? `<div class="cam-warn">⚠ ${esc(noCamReason().text)}${token ? ' · ยังลงเวลาได้ด้วยการถ่ายรูปจากกล้องของเครื่อง' : ''} <button type="button" class="linkbtn" data-cam-help>วิธีแก้</button></div>`
     : '');
   document.addEventListener('click', (e) => { if (e.target.closest('[data-cam-help]')) showCameraHelp(); });
 
@@ -860,6 +884,7 @@
       const choice = siteInput.value.replace(/s+/g, ' ').trim();
       if (choice.length < 2) { siteInput.classList.add('input-bad'); siteInput.focus(); return toast('กรุณาพิมพ์สถานที่ทำงานก่อนสแกน', true); }
       store.set('last_location', choice);
+      if (!hasCameraApi()) return showCameraHelp(() => runNativeScan(mode, choice));
       runScanner(mode, choice);
     };
   }
@@ -929,7 +954,7 @@
     }
     if (btn) busy(btn, false);
     // เบราว์เซอร์ในแอป/ไม่รองรับกล้อง: เปิดสิทธิ์ในตั้งค่าไม่ช่วย ต้องเปิดใน Safari/Chrome
-    if (!hasCameraApi() || (IN_APP && !camOk)) return showCameraHelp();
+    if (!hasCameraApi() || ((IN_APP || IOS_WEBVIEW) && !camOk)) return showCameraHelp();
     const miss = [!geoOk && 'ตำแหน่ง', !camOk && 'กล้อง'].filter(Boolean).join(' และ ');
     toast(`ยังไม่ได้อนุญาต${miss} — ต้องเปิดในการตั้งค่ามือถือตามขั้นตอนนี้`, true);
     openPermGuide();
@@ -974,10 +999,10 @@
       return (ok, text) => { b.className = ok === true ? 'ok' : ok === false ? 'bad' : 'warn'; b.textContent = text; };
     };
     row('อุปกรณ์')(null, deviceOs());
-    row('เบราว์เซอร์')(IN_APP ? false : null, deviceBrowser() + (window.matchMedia?.('(display-mode: standalone)').matches ? ' (แอปบนหน้าจอหลัก)' : ''));
+    row('เบราว์เซอร์')(IN_APP || IOS_WEBVIEW ? false : null, (IOS_WEBVIEW ? 'ในแอปอื่น (ไม่ใช่ Safari โดยตรง)' : deviceBrowser()) + (window.matchMedia?.('(display-mode: standalone)').matches ? ' (แอปบนหน้าจอหลัก)' : ''));
     row('การเชื่อมต่อปลอดภัย (https)')(window.isSecureContext, window.isSecureContext ? 'ผ่าน' : 'ไม่ผ่าน');
     const cam = row('กล้อง');
-    if (!hasCameraApi()) cam(false, IN_APP ? 'ใช้ไม่ได้ในแอปนี้ → เปิดใน Safari/Chrome' : 'เบราว์เซอร์นี้ใช้กล้องไม่ได้ → เปิดใน Safari/Chrome');
+    if (!hasCameraApi()) cam(false, `${noCamReason().text} (ลงเวลาได้ด้วยกล้องของเครื่อง)`);
     else {
       try {
         const stx = await openCamera();
@@ -1018,6 +1043,114 @@
       <button class="btn ghost big" id="helpToProblem" style="margin-top:8px">🆘 แจ้งปัญหาให้ผู้ดูแล</button>`);
     el.querySelector('#helpToForgot').onclick = () => { closeSheet(); renderForgotScan(); };
     el.querySelector('#helpToProblem').onclick = () => openProblemForm('app', { category: 'กล้อง/สแกนใบหน้า', title: 'สแกนใบหน้าไม่ผ่าน', detail: reason ? `ระบบแจ้งว่า: ${reason}\n` : '' });
+  }
+
+  // iPhone รุ่นเก่าเปิดกล้อง/คลังรูปได้เฉพาะช่องเลือกไฟล์ที่อยู่ในหน้า
+  const attachPicker = (inp) => {
+    document.querySelectorAll('input.picker-tmp').forEach((x) => x.remove());
+    inp.className = 'picker-tmp';
+    inp.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0';
+    document.body.appendChild(inp);
+  };
+
+  // ---------- ทางสำรอง: ถ่ายรูปด้วยแอปกล้องของเครื่อง (เมื่อหน้าเว็บเปิดกล้องสดไม่ได้) ----------
+  // ใช้ได้ทุกเบราว์เซอร์/ทุกรุ่น · ประทับเวลาจากเซิร์ฟเวอร์และพิกัดเหมือนเดิม · ผู้ดูแลเห็นธง "ถ่ายด้วยแอปกล้องของเครื่อง" ให้ตรวจรูป
+  function camFallback(mode, locationChoice, e) {
+    const name = e && e.name;
+    if (name === 'NoCameraApi' || ((IN_APP || IOS_WEBVIEW) && name === 'NotAllowedError')) return showCameraHelp(() => runNativeScan(mode, locationChoice));
+    const why = name === 'NotAllowedError' ? 'มือถือไม่อนุญาตให้หน้าเว็บใช้กล้อง (บางเครื่องยังบล็อกอยู่แม้เปิดสิทธิ์ในตั้งค่าแล้ว)'
+      : name === 'NotReadableError' || name === 'NoFrames' ? 'กล้องไม่ส่งภาพ อาจถูกแอปอื่นใช้อยู่ (กล้อง, วิดีโอคอล, LINE, Facebook)'
+        : name === 'NotFoundError' ? 'ไม่พบกล้องหน้าในเครื่องนี้' : `เปิดกล้องในหน้าเว็บไม่ได้${name ? ` (${name})` : ''}`;
+    const el = openSheet(`
+      <h2 class="sheet-title">เปิดกล้องในหน้าเว็บไม่ได้</h2>
+      <p class="muted">${esc(why)}</p>
+      <div class="native-box"><b>📷 ลงเวลาได้เลยตอนนี้</b><p>ใช้กล้องของมือถือถ่ายรูปหน้าตรงแทน ระบบประทับเวลาจริงและพิกัดให้เหมือนเดิม (ผู้ดูแลจะตรวจรูปนี้)</p>
+        <button class="btn primary big" id="nativeGo">📷 ถ่ายรูปด้วยกล้องของเครื่อง</button></div>
+      <button class="btn ghost big" id="camRetry" style="margin-top:8px">ลองสแกนในหน้าเว็บอีกครั้ง</button>
+      ${name === 'NotAllowedError' ? '<button class="btn ghost big" id="camPerm" style="margin-top:8px">วิธีเปิดสิทธิ์กล้อง</button>' : ''}
+      <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>
+      <p class="hint pb-dev">ข้อมูลเครื่อง: ${esc(deviceSummary())} · ${esc(name || '-')}</p>`);
+    el.querySelector('#nativeGo').onclick = () => runNativeScan(mode, locationChoice);
+    el.querySelector('#camRetry').onclick = () => { closeSheet(); runScanner(mode, locationChoice); };
+    el.querySelector('#camPerm')?.addEventListener('click', openPermGuide);
+  }
+  // ต้องเรียกจากการแตะปุ่มโดยตรง (มือถือเปิดกล้องได้เฉพาะตอนผู้ใช้แตะ)
+  function runNativeScan(mode, locationChoice) {
+    if (!lastFix) return toast('ยังไม่พบพิกัด GPS กรุณารอให้ขึ้นพิกัดก่อน แล้วลองใหม่', true);
+    const label = mode === 'in' ? 'เช็คอิน' : 'เช็คเอ้าท์';
+    const inp = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+    inp.setAttribute('capture', 'user');
+    const tapAt = Date.now();
+    // ขอรหัสสแกนพร้อมกับเปิดกล้อง = จุดเริ่มนับเวลาจริงจากเซิร์ฟเวอร์
+    const capP = api('/api/capture/start', { type: mode }).then((cap) => ({ cap, got: Date.now() }));
+    capP.catch(() => {});
+    inp.onchange = async () => {
+      const file = inp.files && inp.files[0];
+      inp.remove();
+      if (!file) return;
+      const pickedAt = Date.now();
+      const el = openSheet('<h2 class="sheet-title">กำลังตรวจรูป</h2><div class="empty" id="nvSt">กำลังตรวจรูปและพิกัด GPS…</div>');
+      const say = (t) => { const x = el.querySelector('#nvSt'); if (x) x.textContent = t; };
+      try {
+        let cap;
+        let got;
+        try { ({ cap, got } = await capP); } catch (err) {
+          if (/ต้องสแกน|ได้เฉพาะออกงาน/.test(err.message || '')) { scanStatus = null; renderScan(); }
+          throw err;
+        }
+        if (file.lastModified && file.lastModified < tapAt - 60000) throw new Error('ต้องถ่ายรูปใหม่ตอนนี้เท่านั้น ใช้รูปเก่าในเครื่องไม่ได้');
+        const src = await imageFileToCanvas(file, 1280);
+        if (Math.min(src.width, src.height) < 240) throw new Error('รูปเล็กเกินไป กรุณาถ่ายใหม่');
+        say('กำลังตรวจใบหน้าในรูป…');
+        let faceCheck = 'unavailable';
+        try {
+          const det = await withTimeout(loadFaceDetector(), 10000);
+          const res = det.detectForVideo(src, performance.now());
+          const n = (res.detections || []).filter((d) => (d.categories?.[0]?.score ?? 0) >= 0.5).length;
+          faceCheck = n === 1 ? 'ok' : n > 1 ? 'many' : 'none';
+        } catch { faceCheck = 'unavailable'; }
+        if (faceCheck === 'many') throw new Error('พบหลายใบหน้าในรูป ให้มีเพียงคุณคนเดียว แล้วถ่ายใหม่');
+        if (faceCheck === 'none' && !confirm('ไม่พบใบหน้าในรูปนี้\n\nกด "ตกลง" เพื่อใช้รูปนี้ (ผู้ดูแลจะตรวจสอบ)\nกด "ยกเลิก" แล้วถ่ายใหม่ให้เห็นหน้าชัด')) { closeSheet(); return; }
+        // ต้องผ่านไปอย่างน้อยเท่าเวลาสแกนปกติ (เซิร์ฟเวอร์ตรวจ)
+        const SCAN_MS = cap.scan_ms || 5000;
+        if (Date.now() - got < SCAN_MS + 300) await new Promise((r) => setTimeout(r, SCAN_MS + 300 - (Date.now() - got)));
+        const elapsed = Math.max(SCAN_MS + 300, Math.min(pickedAt - got, Date.now() - got));
+        const shotAt = new Date(Date.parse(cap.server_time) + elapsed);
+        say('กำลังยืนยันพิกัด GPS ตอนถ่าย…');
+        let fix = await freshFix(12000);
+        if (!fix) fix = [...gpsLog].reverse().find((x) => x.got >= tapAt) || null;
+        if (!fix) throw new Error('ยืนยันพิกัด GPS ไม่ได้ กรุณาออกไปที่โล่งแล้วลองใหม่');
+        const samples = gpsLog.filter((x) => x.got >= tapAt - 1000 && x !== fix).slice(-20).map((x) => ({ lat: x.lat, lng: x.lng, accuracy: x.accuracy }));
+        closeSheet();
+        const m = matchSite(fix.lat, fix.lng);
+        const placeName = locationChoice || (m.configured ? m.site.name : 'ไม่ระบุสถานที่');
+        const photo = stampPhoto(src, [
+          { text: `${label} · ${me.name}`, bold: true },
+          { text: `รหัสพนักงาน ${me.emp_code}` },
+          { text: fmtStamp(shotAt), bold: true, color: '#ffd166' },
+          { text: `สถานที่ ${placeName}${m.configured && !m.inside ? ' (นอกพื้นที่)' : ''}` },
+          { text: `พิกัด ${fix.lat.toFixed(6)}, ${fix.lng.toFixed(6)} (±${Math.round(fix.accuracy)} ม.)` },
+          { text: `รหัสตรวจสอบ ${cap.verify_code} · กล้องของเครื่อง`, color: '#9be9df' },
+        ]);
+        const tc = document.createElement('canvas');
+        const ts = 128 / Math.max(src.width, src.height);
+        tc.width = Math.round(src.width * ts);
+        tc.height = Math.round(src.height * ts);
+        tc.getContext('2d').drawImage(src, 0, 0, tc.width, tc.height);
+        renderConfirm({
+          mode, label, photo, placeName, shotAt, fix,
+          payload: {
+            nonce: cap.nonce, elapsed_ms: Math.round(elapsed), photo, thumb: tc.toDataURL('image/jpeg', 0.7),
+            lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, gps_samples: samples, gps_pos_age_ms: Math.round(fix.got - fix.at),
+            face_check: faceCheck === 'ok' ? 'ok' : 'unavailable', face_ratio: faceCheck === 'ok' ? 1 : 0,
+            camera_label: 'native-camera', capture_mode: 'native', touch: navigator.maxTouchPoints > 0, location_choice: locationChoice,
+          },
+          verify: cap.verify_code,
+        });
+      } catch (err) { closeSheet(); toast(err.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่', true); }
+    };
+    attachPicker(inp);
+    inp.click();
   }
 
   async function runScanner(mode, locationChoice) {
@@ -1063,7 +1196,7 @@
         stream = await openCamera();
       } catch (e) {
         close();
-        return cameraError(e);
+        return camFallback(mode, locationChoice, e);
       }
       if (closed) return close();
       const track = stream.getVideoTracks()[0];
@@ -1079,7 +1212,7 @@
         new Promise((r) => setTimeout(() => r(false), 10000)),
       ]);
       if (closed) return;
-      if (!camReady) { close(); return scanHelp('กล้องไม่ส่งภาพ (อาจถูกแอปอื่นใช้อยู่) ปิดแอปกล้อง/วิดีโอคอล แล้วลองใหม่'); }
+      if (!camReady) { close(); return camFallback(mode, locationChoice, { name: 'NoFrames' }); }
 
       st.textContent = 'กำลังเตรียมระบบตรวจใบหน้า…';
       let detector = null;
@@ -1517,6 +1650,7 @@
       const inp = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
       inp.setAttribute('capture', 'user');
       inp.onchange = async () => {
+        inp.remove();
         try {
           const src = await imageFileToCanvas(inp.files[0], 1200);
           const side = Math.min(src.width, src.height);
@@ -1526,6 +1660,7 @@
           resolve(canvasJpeg(c, 38000));
         } catch (err) { toast(err.message, true); resolve(null); }
       };
+      attachPicker(inp);
       inp.click();
     });
   }
