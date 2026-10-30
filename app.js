@@ -586,22 +586,40 @@
     const h = canvas.height;
     const fs = Math.max(15, Math.round(Math.min(w, h) / 30));
     const lh = Math.round(fs * 1.38);
-    ctx.font = `600 ${fs}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
-    const maxText = Math.min(w * 0.9, Math.max(...lines.map((l) => ctx.measureText(l.text).width)));
     const pad = Math.round(fs * 0.7);
-    const boxW = maxText + pad * 2;
+    const maxW = w * 0.9 - pad * 2;
+    // วัดทีละบรรทัดด้วยฟอนต์ที่ใช้จริง ยาวเกินกรอบ → ลดขนาดตัวอักษรบรรทัดนั้น แล้ววางตำแหน่งเองจากซ้าย
+    // (ไม่ใช้ textAlign 'right' + maxWidth ของ fillText: Safari บางรุ่นวางข้อความผิดที่ จนตัวหนังสือล้นขอบรูป)
+    const items = lines.map((l) => {
+      const font = (s) => `${l.bold ? 700 : 500} ${s}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
+      ctx.font = font(fs);
+      let tw = ctx.measureText(l.text).width;
+      let f = font(fs);
+      if (tw > maxW) {
+        f = font(Math.max(8, Math.floor((fs * maxW) / tw)));
+        ctx.font = f;
+        tw = ctx.measureText(l.text).width;
+      }
+      return { ...l, f, tw };
+    });
+    const textW = Math.min(maxW, Math.max(...items.map((it) => it.tw)));
+    const boxW = textW + pad * 2;
     const boxH = lh * lines.length + pad * 1.4;
     const x = w - boxW - pad;
     const y = h - boxH - pad;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = 'rgba(0,0,0,.62)';
     if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, boxW, boxH, fs * 0.5); ctx.fill(); } else ctx.fillRect(x, y, boxW, boxH);
-    ctx.textAlign = 'right';
+    if ('direction' in ctx) ctx.direction = 'ltr';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    lines.forEach((l, i) => {
-      ctx.font = `${l.bold ? 700 : 500} ${fs}px "IBM Plex Sans Thai", Tahoma, sans-serif`;
-      ctx.fillStyle = l.color || '#fff';
-      ctx.fillText(l.text, w - pad * 2, y + pad * 0.7 + i * lh, maxText);
+    items.forEach((it, i) => {
+      ctx.font = it.f;
+      ctx.fillStyle = it.color || '#fff';
+      ctx.fillText(it.text, x + boxW - pad - it.tw, y + pad * 0.7 + i * lh); // ชิดขวาในกรอบ
     });
+    ctx.restore();
     return canvas.toDataURL('image/jpeg', 0.85);
   }
 
