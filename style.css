@@ -492,3 +492,6 @@ img.avatar { object-fit: cover; padding: 0; background: var(--surface-2); }
 .native-box b { display: block; font-size: 16px; color: var(--primary); }
 .native-box p { margin: 6px 0 12px; font-size: 14px; line-height: 1.5; }
 .cam-help-sub { display: block; margin: 14px 0 0; font-size: 14px; }
+.fr-check { flex-wrap: wrap; }
+.fr-check small { flex-basis: 100%; margin: -4px 0 0 28px; font-size: 12.5px; }
+.fr-evi.input-bad { outline: 2px solid var(--bad); outline-offset: 4px; border-radius: 10px; }

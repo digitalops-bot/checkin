@@ -828,7 +828,7 @@
           สแกนใบหน้า${isIn ? 'เข้างาน' : 'ออกงาน'}</button>
         <p class="hint">กดแล้วมองตรงเข้ากล้อง ค้างไว้นิ่งๆ 5 วินาที (ไม่ต้องขยับหน้า) ระบบจะถ่ายรูปพร้อมประทับเวลาจริง พิกัด และสถานที่ทำงานให้อัตโนมัติ</p>
         <div class="req-entries">
-          <button type="button" class="btn ghost fr-entry" id="frEntryScan">📝 ลืมสแกน<small>ทำงานจริงแต่ลืมสแกน</small></button>
+          <button type="button" class="btn ghost fr-entry" id="frEntryScan">📝 ลืมสแกน / แก้เวลา<small>ลืมสแกน หรือเวลาที่สแกนไม่ตรงจริง</small></button>
           <button type="button" class="btn ghost fr-entry" id="apEntryScan">🏳️ ยื่นคำร้อง<small>หยุดตามคำสั่ง / ลา / มาสาย</small></button>
         </div>
         <p class="hint warn-hint">⚠ ห้ามใช้แอปจำลองตำแหน่ง (Fake GPS) ระบบตรวจจับพิกัดปลอมและรายงานผู้ดูแลพร้อมหลักฐานทุกครั้ง</p>
@@ -1564,11 +1564,13 @@
             <dt>สแกนเข้า (จริง)</dt><dd>${pv.scan_in ? `${esc(pv.scan_in)} น.` : '<span class="bad">ไม่มี</span>'}${pv.calc_in && pv.calc_in !== pv.scan_in ? ` <span class="muted">→ นับเป็น ${esc(pv.calc_in)}</span>` : ''}</dd>
             <dt>สแกนออก (จริง)</dt><dd>${pv.scan_out ? `${esc(pv.scan_out)} น.` : '<span class="bad">ไม่มี</span>'}${pv.calc_out && pv.calc_out !== pv.scan_out ? ` <span class="muted">→ เลิกงาน ${esc(pv.calc_out)}</span>` : ''}</dd>
           </dl>
+          ${pv.scan_in || pv.scan_out ? '<p class="hint" style="margin:6px 0 0">สแกนออกไปแล้วแต่ยังทำงาน/OT ต่อ? <button type="button" class="linkbtn" id="otToFix">✏️ ขอแก้ไขเวลา</button> (แนบใบลงเวลา) อนุมัติแล้วกลับมาขอ OT ได้</p>' : ''}
         </div>`;
+      setTimeout(() => document.getElementById('otToFix')?.addEventListener('click', () => openCorrectForm(otDate)));
       if (pv.reason) {
         box.innerHTML = `${times}<div class="${pv.reason === 'no_ot' ? 'info-box' : 'issue-box'}">${esc(pv.reason_text)}</div>
-          ${pv.reason !== 'no_ot' && pv.reason !== 'no_checkout' ? '<button class="btn ghost big" id="toCal">ไปที่ปฏิทินเพื่อยื่นคำร้อง</button>' : ''}`;
-        document.getElementById('toCal')?.addEventListener('click', () => go('cal'));
+          ${pv.reason !== 'no_ot' && pv.reason !== 'no_checkout' ? '<button class="btn ghost big" id="toCal">📝 ไปที่ลืมสแกน / แก้เวลา</button>' : ''}`;
+        document.getElementById('toCal')?.addEventListener('click', () => renderForgotScan(otDate.slice(0, 7)));
         return;
       }
       const free = pv.items.filter((i) => !i.request);
@@ -1691,7 +1693,7 @@
       <p class="hint">${schedule.shifts.map((x) => `${esc(x.name)} ${esc(x.start)}–${esc(x.end)} น.`).join(' · ')}<br>
         แตะวันที่เป็น<b class="bad"> สีแดง </b>เพื่อดูสาเหตุและยื่นคำร้อง</p>
       <div class="req-entries">
-        <button class="btn ghost fr-entry" id="frEntryCal">📝 ลืมสแกน<small>ทำงานจริงแต่ลืมสแกน</small></button>
+        <button class="btn ghost fr-entry" id="frEntryCal">📝 ลืมสแกน / แก้เวลา<small>ลืมสแกน หรือเวลาที่สแกนไม่ตรงจริง</small></button>
         <button class="btn ghost fr-entry" id="apEntryCal">🏳️ ยื่นคำร้อง<small>หยุดตามคำสั่ง / ลา / มาสาย</small></button>
       </div>`;
     document.getElementById('frEntryCal').onclick = () => renderForgotScan(calMonth);
@@ -1946,8 +1948,9 @@
     forgotMonth = month || forgotMonth || ymOf(serverNow());
     view.innerHTML = `
       <button class="back" id="frBack">‹ กลับ</button>
-      <h1 class="screen-title"><span class="dot"></span>ลืมสแกน · ขอบันทึกเวลา</h1>
-      <p class="hint fr-hint">แตะวันที่ทำงานจริงแต่ลืมสแกน · ขอย้อนหลังได้ 60 วัน (รวมวันก่อนสมัครใช้ระบบ) · วันที่สแกนครบแล้วเลือกไม่ได้<br>
+      <h1 class="screen-title"><span class="dot"></span>ลืมสแกน / แก้ไขเวลา</h1>
+      <p class="hint fr-hint">แตะวันที่ทำงานจริงแต่ลืมสแกน · ขอย้อนหลังได้ 60 วัน (รวมวันก่อนสมัครใช้ระบบ)<br>
+        วันที่<b>สแกนครบแล้วแต่เวลาไม่ตรงจริง</b> (เช่น สแกนออกแล้วยังทำงาน/OT ต่อ) แตะวันนั้นเพื่อ <b>✏️ ขอแก้ไขเวลา</b> (ต้องแนบใบลงเวลา)<br>
         ถ้าวันนั้น<b>หยุดงานตามคำสั่งหัวหน้างาน หรือลา</b> ไม่ต้องขอลืมสแกน ให้ <button type="button" class="linkbtn" id="frToAppeal">🏳️ ยื่นคำร้อง</button> แทน</p>
       <div class="cal-head">
         <button class="btn ghost cal-nav" id="frPrevM" aria-label="เดือนก่อน">‹</button>
@@ -1983,8 +1986,8 @@
       const r = reqBy[d.date];
       if (d.date > todayStr || d.date < oldest) return 'off';
       if (r && r.status === 'pending') return 'pending';
-      if (r && r.status === 'approved') return 'approved';
       if (d.checkin && d.checkout) return 'done';
+      if (r && r.status === 'approved') return 'approved';
       return d.color === 'red' ? 'need' : 'open';
     };
     const MARK = { pending: '⏳', approved: '✓', done: '✓', need: '!', open: '', off: '' };
@@ -1993,23 +1996,25 @@
         <div class="cal-grid cal-week">${WEEK_TH.map((w) => `<span>${w}</span>`).join('')}</div>
         <div class="cal-grid">
           ${'<span></span>'.repeat(lead)}
-          ${cal.days.map((d) => { const st = stateOf(d); return `<button class="cal-day fr-day fr-${st}${d.date === todayStr ? ' today' : ''}" data-date="${d.date}" ${st === 'off' || st === 'done' ? 'disabled' : ''}>
+          ${cal.days.map((d) => { const st = stateOf(d); return `<button class="cal-day fr-day fr-${st}${d.date === todayStr ? ' today' : ''}" data-date="${d.date}" data-st="${st}" ${st === 'off' ? 'disabled' : ''}>
             <span class="n">${Number(d.date.slice(8))}</span><span class="m">${MARK[st]}</span></button>`; }).join('')}
         </div>
         <div class="cal-legend">
           <span><i class="fr-need"></i>สแกนไม่ครบ</span><span><i class="fr-open"></i>ขอได้</span>
-          <span><i class="fr-pending"></i>รอตรวจสอบ</span><span><i class="fr-done"></i>สแกนครบ/อนุมัติแล้ว</span>
+          <span><i class="fr-pending"></i>รอตรวจสอบ</span><span><i class="fr-done"></i>สแกนครบ (แตะเพื่อขอแก้ไขเวลา)</span>
         </div>
       </div>
       <h2 class="section-title">คำขอของฉัน</h2>
       ${mine.items.length ? mine.items.slice(0, 15).map((r) => `
         <div class="card fr-item">
-          <div class="fr-item-top"><b>${esc(thDate(r.work_date))}</b><span class="badge ${r.status}">${SR_TH[r.status]}</span></div>
-          <div class="sub">${r.location ? `🏢 ${esc(r.location)} · ` : ''}${esc(r.shift_name || '')} · ขอ ${[r.req_in && `เข้างาน ${esc(r.req_in)}`, r.req_out && `ออกงาน ${esc(r.req_out)}`].filter(Boolean).join(' · ')} น.</div>
+          <div class="fr-item-top"><b>${esc(thDate(r.work_date))}${r.req_type === 'correct' ? ' <span class="badge ot">✏️ แก้ไขเวลา</span>' : ''}</b><span class="badge ${r.status}">${SR_TH[r.status]}</span></div>
+          <div class="sub">${r.location ? `🏢 ${esc(r.location)} · ` : ''}${esc(r.shift_name || '')} · ${r.req_type === 'correct'
+    ? `ขอแก้ ${[r.req_in && `เข้างาน ${esc(r.had_in)} → ${esc(r.req_in)}`, r.req_out && `ออกงาน ${esc(r.had_out)} → ${esc(r.req_out)}`].filter(Boolean).join(' · ')} น.`
+    : `ขอ ${[r.req_in && `เข้างาน ${esc(r.req_in)}`, r.req_out && `ออกงาน ${esc(r.req_out)}`].filter(Boolean).join(' · ')} น.`}</div>
           ${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">ผู้ดูแลบันทึก ${[r.approved_in && `เข้างาน ${esc(r.approved_in)}`, r.approved_out && `ออกงาน ${esc(r.approved_out)}`].filter(Boolean).join(' · ')} น.</div>` : ''}
           ${r.review_note ? `<div class="sub">ผู้ดูแล: ${esc(r.review_note)}</div>` : ''}
         </div>`).join('') : '<div class="card empty">ยังไม่มีคำขอ</div>'}`;
-    body.querySelectorAll('.fr-day:not([disabled])').forEach((b) => (b.onclick = () => openForgotForm(b.dataset.date)));
+    body.querySelectorAll('.fr-day:not([disabled])').forEach((b) => (b.onclick = () => (b.dataset.st === 'done' ? openCorrectForm(b.dataset.date) : openForgotForm(b.dataset.date))));
   }
 
   // ฟอร์มขอบันทึกเวลาของวันที่เลือก
@@ -2032,8 +2037,10 @@
       const ex = info.existing;
       sheet.innerHTML = `${head}${scanRow('เข้างาน', info.scans.in)}${scanRow('ออกงาน', info.scans.out)}
         <div class="fr-block">${esc(info.block)}</div>
-        ${ex ? `<div class="sub" style="margin-top:8px">คำขอ: ${[ex.req_in && `เข้างาน ${esc(ex.req_in)}`, ex.req_out && `ออกงาน ${esc(ex.req_out)}`].filter(Boolean).join(' · ')} น. · ${SR_TH[ex.status]}</div>` : ''}
+        ${ex ? `<div class="sub" style="margin-top:8px">คำขอ${ex.req_type === 'correct' ? 'แก้ไขเวลา' : ''}: ${[ex.req_in && `เข้างาน ${esc(ex.req_in)}`, ex.req_out && `ออกงาน ${esc(ex.req_out)}`].filter(Boolean).join(' · ')} น. · ${SR_TH[ex.status]}</div>` : ''}
+        ${(info.scans.in || info.scans.out) && !(ex && ex.status === 'pending') ? '<button class="btn primary big" id="frToFix" style="margin-top:12px">✏️ เวลาที่สแกนไม่ถูก? ขอแก้ไขเวลา</button>' : ''}
         <button class="btn ghost big" data-close style="margin-top:12px">ปิด</button>`;
+      sheet.querySelector('#frToFix')?.addEventListener('click', () => openCorrectForm(date));
       return;
     }
     const needIn = !info.scans.in;
@@ -2043,6 +2050,7 @@
       <div class="fr-scans">
         ${scanRow('เข้างาน', info.scans.in)}${scanRow('ออกงาน', info.scans.out)}
       </div>
+      ${info.scans.in || info.scans.out ? '<p class="hint" style="margin-top:0">เวลาที่สแกนไว้ไม่ถูก? <button type="button" class="linkbtn" id="frToFix2">✏️ ขอแก้ไขเวลา</button></p>' : ''}
       <label class="field"><span>สถานที่ทำงานวันนั้น <b class="bad">*</b></span><input id="frPlace" maxlength="100" autocomplete="off" list="frSiteList" placeholder="พิมพ์ชื่อสถานที่ เช่น ไซต์งานบางนา"><datalist id="frSiteList">${sites.map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist></label>
       ${store.get('last_location', '') ? `<div class="site-quick"><button type="button" class="chip-btn" id="frLastPlace">ใช้ที่เดิม: <b>${esc(store.get('last_location', ''))}</b></button></div>` : ''}
       <div class="field"><span class="field-label">กะที่ทำงานวันนั้น</span>
@@ -2068,6 +2076,7 @@
       <button class="btn primary big" id="frSend">ส่งคำขอ</button>
       <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>`;
     let evidence = '';
+    sheet.querySelector('#frToFix2')?.addEventListener('click', () => openCorrectForm(date));
     const placeIn = sheet.querySelector('#frPlace');
     sheet.querySelector('#frLastPlace')?.addEventListener('click', () => { placeIn.value = store.get('last_location', ''); placeIn.classList.remove('input-bad'); });
     placeIn.addEventListener('input', () => placeIn.classList.remove('input-bad'));
@@ -2128,6 +2137,105 @@
     sheet.querySelector('#frSend').onclick = () => send(false);
     sheet.querySelector('#frSendAnyway').onclick = () => send(true);
     sheet.querySelector('#frGoAttach').onclick = () => { sheet.querySelector('#frNoEvi').hidden = true; sheet.querySelector('.fr-evi').scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  }
+
+  // ---------- ขอแก้ไขเวลา: สแกนไว้แล้วแต่เวลาไม่ตรงจริง (เช่น สแกนออกแล้วยังทำ OT ต่อ) · บังคับใบลงเวลา + เหตุผล ----------
+  async function openCorrectForm(date) {
+    const el = openSheet('<h2 class="sheet-title">ขอแก้ไขเวลา</h2><div class="empty">กำลังโหลด…</div>');
+    let info;
+    try { info = await api(`/api/me/scan-request?date=${date}&type=correct`); } catch (err) { closeSheet(); return toast(err.message, true); }
+    const sheet = el.querySelector('.sheet');
+    if (!sheet || !sheet.isConnected) return;
+    const head = `<div class="sheet-grip"></div><h2 class="sheet-title">✏️ ขอแก้ไขเวลา · ${esc(thDate(date))}</h2>
+      <div class="fr-who">ผู้ยื่น: <b>${esc(me.name)}</b> · รหัส ${esc(me.emp_code)}</div>`;
+    if (info.block) {
+      sheet.innerHTML = `${head}<div class="fr-block">${esc(info.block)}</div>
+        ${!info.scans.in && !info.scans.out ? '<button class="btn primary big" id="crToForgot" style="margin-top:12px">📝 ไปที่ลืมสแกน</button>' : ''}
+        <button class="btn ghost big" data-close style="margin-top:8px">ปิด</button>`;
+      sheet.querySelector('#crToForgot')?.addEventListener('click', () => openForgotForm(date));
+      return;
+    }
+    const sIn = info.scans.in;
+    const sOut = info.scans.out;
+    const shift0 = info.shifts.find((x) => x.id === info.shift_id) || info.shifts[0];
+    sheet.innerHTML = `${head}
+      <p class="hint" style="margin-top:0">ใช้เมื่อเวลาที่สแกนไว้ไม่ตรงกับเวลาทำงานจริง เช่น <b>สแกนออกแล้วแต่ยังทำงาน/OT ต่อ</b> หรือมาถึงก่อนแต่สแกนเข้าช้า · <b class="bad">ต้องแนบใบลงเวลาทุกครั้ง</b> · อนุมัติแล้วขอ OT ตามเวลาใหม่ได้</p>
+      <div class="fr-times">
+        ${sIn ? `<div class="fr-time"><label class="fr-check"><input type="checkbox" id="crIn"${sOut ? '' : ' checked'}> แก้เวลา<b>เข้างาน</b><small class="muted">สแกนไว้ ${esc(sIn)} น. · แก้ได้เฉพาะให้เร็วขึ้น</small></label>${timeSel('in', sIn)}</div>` : ''}
+        ${sOut ? `<div class="fr-time"><label class="fr-check"><input type="checkbox" id="crOut" checked> แก้เวลา<b>ออกงาน</b><small class="muted">สแกนไว้ ${esc(sOut)} น. · แก้ได้เฉพาะให้ช้าลง</small></label>${timeSel('out', sOut)}</div>` : ''}
+        <p class="hint">เลือกเวลาให้ตรงกับใบลงเวลา</p>
+      </div>
+      <label class="field"><span>สถานที่ทำงานวันนั้น <b class="bad">*</b></span><input id="crPlace" maxlength="100" autocomplete="off" list="crSiteList" placeholder="พิมพ์ชื่อสถานที่ เช่น ไซต์งานบางนา" value="${esc(store.get('last_location', ''))}"><datalist id="crSiteList">${sites.map((x) => `<option value="${esc(x.name)}">`).join('')}</datalist></label>
+      <div class="field"><span class="field-label">กะที่ทำงานวันนั้น</span>
+        <div class="fr-shifts">${info.shifts.map((x) => `<label class="fr-chip"><input type="radio" name="crShift" value="${esc(x.id)}"${x.id === shift0.id ? ' checked' : ''}><span>${esc(x.name)} ${esc(x.start)}–${esc(x.end)}</span></label>`).join('')}</div></div>
+      <div class="field"><span class="field-label">ใบลงเวลา <b class="bad">* บังคับ</b> <small>รูปใบลงเวลา / ใบเซ็นชื่อของวันนั้น</small></span>
+        <div class="fr-evi" id="crEviBox">
+          <label class="btn ghost"><input type="file" accept="image/*" capture="environment" id="crCam" hidden>📷 ถ่ายรูปใบลงเวลา</label>
+          <label class="btn ghost"><input type="file" accept="image/*" id="crFile" hidden>📎 เลือกรูปจากเครื่อง</label>
+        </div>
+        <img id="crPreview" class="fr-preview" alt="" hidden>
+        <em class="err" id="crEviErr" hidden>กรุณาแนบรูปใบลงเวลา</em></div>
+      <label class="field"><span>เหตุผล <b class="bad">*</b></span><textarea id="crReason" maxlength="300" rows="2" placeholder="เช่น สแกนออก 16:50 แต่ทำโอทีต่อถึง 19:00 ตามใบลงเวลา"></textarea></label>
+      <button class="btn primary big" id="crSend">ส่งคำขอแก้ไขเวลา</button>
+      <button class="btn ghost big" data-close style="margin-top:8px">ยกเลิก</button>`;
+    let evidence = '';
+    const q = (x) => sheet.querySelector(x);
+    const getT = (side) => { const t = sheet.querySelector(`.time24[data-side="${side}"]`); return t ? `${t.querySelector('[data-p=h]').value}:${t.querySelector('[data-p=m]').value}` : ''; };
+    ['in', 'out'].forEach((side) => {
+      const cb = q(side === 'in' ? '#crIn' : '#crOut');
+      if (!cb) return;
+      const sync = () => sheet.querySelectorAll(`.time24[data-side="${side}"] select`).forEach((x) => (x.disabled = !cb.checked));
+      cb.onchange = sync;
+      sync();
+    });
+    q('#crPlace').addEventListener('input', () => q('#crPlace').classList.remove('input-bad'));
+    q('#crReason').addEventListener('input', () => q('#crReason').classList.remove('input-bad'));
+    const onFile = async (inp) => {
+      const f = inp.files[0];
+      inp.value = '';
+      if (!f) return;
+      try {
+        evidence = canvasJpeg(await imageFileToCanvas(f, 1600), 3000000);
+        q('#crPreview').src = evidence;
+        q('#crPreview').hidden = false;
+        q('#crEviErr').hidden = true;
+        q('#crEviBox').classList.remove('input-bad');
+      } catch (err) { toast(err.message, true); }
+    };
+    q('#crCam').onchange = (e) => onFile(e.target);
+    q('#crFile').onchange = (e) => onFile(e.target);
+    q('#crSend').onclick = async () => {
+      const wantIn = !!q('#crIn')?.checked;
+      const wantOut = !!q('#crOut')?.checked;
+      if (!wantIn && !wantOut) return toast('กรุณาเลือกเวลาที่ต้องการแก้ไขอย่างน้อย 1 รายการ', true);
+      const inT = wantIn ? getT('in') : '';
+      const outT = wantOut ? getT('out') : '';
+      if (wantIn && inT >= sIn) return toast(`เวลาเข้างานที่ขอแก้ต้องเร็วกว่าเวลาที่สแกนไว้ (${sIn} น.)`, true);
+      const place = q('#crPlace').value.replace(/\s+/g, ' ').trim();
+      const reason = q('#crReason').value.trim();
+      const bad = [];
+      if (place.length < 2) { q('#crPlace').classList.add('input-bad'); bad.push(q('#crPlace')); }
+      if (!evidence) { q('#crEviErr').hidden = false; q('#crEviBox').classList.add('input-bad'); bad.push(q('#crEviBox')); }
+      if (reason.length < 5) { q('#crReason').classList.add('input-bad'); bad.push(q('#crReason')); }
+      if (bad.length) {
+        bad[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return toast(!evidence ? 'ขอแก้ไขเวลาต้องแนบรูปใบลงเวลาทุกครั้ง' : place.length < 2 ? 'กรุณาระบุสถานที่ทำงาน' : 'กรุณาระบุเหตุผล (อย่างน้อย 5 ตัวอักษร)', true);
+      }
+      const btn = q('#crSend');
+      busy(btn, true, 'กำลังส่ง…');
+      store.set('last_location', place);
+      try {
+        await api('/api/me/scan-requests', {
+          type: 'correct', date, shift_id: sheet.querySelector('[name=crShift]:checked').value, location: place,
+          in_time: inT, out_time: outT, reason, evidence,
+        });
+        closeSheet();
+        toast('ส่งคำขอแก้ไขเวลาแล้ว รอผู้ดูแลตรวจสอบ ผลจะแจ้งที่กระดิ่ง 🔔');
+        if (document.getElementById('frBody')) renderForgotScan(forgotMonth);
+        else if (current === 'cal') renderCalendar(calMonth);
+        else if (current === 'ot') loadOtPreview();
+      } catch (err) { toast(err.message, true); busy(btn, false); }
+    };
   }
 
   // ---------- ยื่นคำร้อง: วันสีแดงที่ไม่ได้ทำงาน/มีเหตุ (หยุดตามคำสั่งหัวหน้างาน, ลา, มาสาย ฯลฯ) ----------
@@ -2205,10 +2313,11 @@
         <dt>สแกนออกงาน</dt><dd>${d.checkout ? `${esc(d.checkout)} น.${d.calc_out && d.calc_out !== d.checkout ? ` <span class="muted">(เลิกงาน ${esc(d.calc_out)})</span>` : ''}` : '<span class="bad">ไม่มี</span>'}</dd>
         ${d.worked_hours != null ? `<dt>เวลาทำงาน</dt><dd>${d.worked_hours} ชม.</dd>` : ''}
       </dl>
-      ${d.manual ? '<div class="fr-manual">📝 เวลาของวันนี้บันทึกจากคำขอลืมสแกนที่ผู้ดูแลอนุมัติแล้ว</div>' : ''}
+      ${d.manual ? '<div class="fr-manual">📝 เวลาของวันนี้บันทึกจากคำขอ (ลืมสแกน / แก้ไขเวลา) ที่ผู้ดูแลอนุมัติแล้ว</div>' : ''}
       ${d.issues.length ? `<div class="issue-box"><b>สาเหตุที่เป็นสีแดง</b><ul>${d.issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul><small>สีแดงไม่ได้แปลว่าทำผิด · ทำงานแต่ลืมสแกน → กด "ลืมสแกน" · หยุดตามคำสั่งหัวหน้างาน/ลา/มาสายมีเหตุ → ยื่นคำร้องด้านล่าง</small></div>` : ''}
       ${otRows ? `<div class="ot-box"><b>เวลาทำงานเกิน (คิดเป็น OT ได้)</b><ul>${otRows}</ul><small>ถ้าทำ OT จริง ต้องกดขอ OT เอง</small><button class="btn primary sm" id="askOt" style="margin-top:8px">ขอ OT ของวันนี้</button></div>` : ''}
       ${!(d.checkin && d.checkout) && d.date <= todayTHStr() ? `<button class="btn primary big fr-open-btn" id="frFromDay">📝 ลืมสแกน? ขอบันทึกเวลาวันนี้</button>` : ''}
+      ${(d.checkin || d.checkout) && d.date <= todayTHStr() ? `<button class="btn ghost big fr-open-btn" id="fixFromDay">✏️ เวลาที่สแกนไม่ตรงจริง? ขอแก้ไขเวลา</button>` : ''}
       ${d.appeal ? `<div class="appeal-box"><b>คำร้องของคุณ:</b> ${esc(d.appeal.reason)}<div>${esc(d.appeal.note)}</div>
         ${d.appeal.review_note ? `<div class="sub">ผู้ดูแล: ${esc(d.appeal.review_note)}</div>` : ''}</div>` : ''}
       ${canAppeal ? `
@@ -2222,6 +2331,7 @@
       <button class="btn ghost big" data-close style="margin-top:10px">ปิด</button>`);
     el.querySelector('#askOt')?.addEventListener('click', () => { otDate = d.date; go('ot'); });
     el.querySelector('#frFromDay')?.addEventListener('click', () => { closeSheet(); openForgotForm(d.date); });
+    el.querySelector('#fixFromDay')?.addEventListener('click', () => { closeSheet(); openCorrectForm(d.date); });
     const f = el.querySelector('#apf');
     if (!f) return;
     f.reason.addEventListener('change', () => {

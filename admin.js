@@ -196,7 +196,7 @@
     { id: 'map', label: 'แผนที่การลงเวลา', icon: 'pin' },
     { id: 'cal', label: 'ปฏิทินพนักงาน', icon: 'cal' },
     { id: 'appeal', label: 'คำร้อง', icon: 'flag' },
-    { id: 'scanreq', label: 'ลืมสแกน', icon: 'note' },
+    { id: 'scanreq', label: 'ลืมสแกน / แก้เวลา', icon: 'note' },
     { id: 'problem', label: 'แจ้งปัญหา', icon: 'help' },
     { id: 'ot', label: 'คำขอ OT', icon: 'ot' },
     { id: 'sum', label: 'สรุปรายคน', icon: 'sum' },
@@ -343,13 +343,14 @@
     gps_suspicious: 'พิกัดผิดปกติ (อาจใช้แอปปลอมตำแหน่ง)',
     desktop_device: 'ลงเวลาจากคอมพิวเตอร์',
     overnight: 'เช็คเอ้าท์ข้ามวัน',
-    manual_entry: 'บันทึกจากคำขอลืมสแกน (ผู้ดูแลอนุมัติ)',
+    manual_entry: 'บันทึกจากคำขอลืมสแกน/แก้ไขเวลา (ผู้ดูแลอนุมัติ)',
+    time_corrected: 'แก้ไขเวลาตามใบลงเวลา (ผู้ดูแลอนุมัติ)',
     gps_static: 'พิกัดคงที่ระหว่างสแกน (ปกติเมื่อยืนนิ่งหรืออยู่ในอาคาร)',
     gps_jump: 'สงสัยปลอมตำแหน่ง: พิกัดกระโดดระหว่างสแกน',
     gps_teleport: 'สงสัยปลอมตำแหน่ง: ย้ายที่เร็วเกินจริงจากครั้งก่อน',
     gps_shared: 'สงสัยปลอมตำแหน่ง: พิกัดซ้ำกับพนักงานคนอื่น',
   };
-  const INFO_FLAGS = new Set(['overnight', 'location_unverified', 'manual_entry', 'gps_static']);
+  const INFO_FLAGS = new Set(['overnight', 'location_unverified', 'manual_entry', 'gps_static', 'time_corrected']);
   const flagsOf = (r) => { try { return JSON.parse(r?.flags || '[]'); } catch { return []; } };
   // ผู้ดูแลยืนยันว่าตรวจแล้วถูกต้อง → ไม่นับเป็นข้อสงสัย
   const warnsOf = (r) => (r?.review_ok ? [] : flagsOf(r).filter((f) => !INFO_FLAGS.has(f)));
@@ -416,7 +417,7 @@
             : flags.some((f) => !INFO_FLAGS.has(f)) ? `<div><button type="button" class="btn ok sm" data-ok="${rec.id}" data-wd="${esc(rec.work_date)}">✓ ตรวจแล้ว ข้อมูลถูกต้อง</button><div class="sub">กดเมื่อตรวจรูปและพิกัดแล้วไม่พบความผิดปกติ ระบบจะเลิกนับเป็นข้อสงสัย</div></div>` : ''}</dd>
         ${rec.ip ? `<dt>IP</dt><dd class="mono">${esc(rec.ip)}</dd>` : ''}
         ${rec.device ? `<dt>อุปกรณ์</dt><dd class="sub">${esc(rec.device)}</dd>` : ''}</dl>
-        ${rec.photo ? `<canvas class="detail-photo" data-photo="${esc(rec.photo)}" data-fit="contain" data-open="${esc(rec.photo)}"></canvas>` : '<div class="no-photo">📝 ไม่มีรูปสแกน — บันทึกจากคำขอลืมสแกนที่ผู้ดูแลอนุมัติ (ดูหลักฐานได้ที่เมนู "ลืมสแกน")</div>'}
+        ${rec.photo ? `<canvas class="detail-photo" data-photo="${esc(rec.photo)}" data-fit="contain" data-open="${esc(rec.photo)}"></canvas>` : '<div class="no-photo">📝 ไม่มีรูปสแกน — บันทึกจากคำขอลืมสแกน/แก้ไขเวลาที่ผู้ดูแลอนุมัติ (ดูหลักฐานได้ที่เมนู "ลืมสแกน / แก้เวลา")</div>'}
       </div>`;
     };
     const extras = p.records.filter((r) => r !== p.checkin && r !== p.checkout);
@@ -477,7 +478,7 @@
             <div class="card stat ot"><div class="k">OT รออนุมัติ</div><div class="v">${d.pending}</div></div>
             <button class="card stat map-stat" id="openMap" type="button"><div class="k">${icon('pin')}แผนที่การลงเวลา</div><div class="v">${d.pairs.reduce((n, p) => n + p.records.filter((r) => r.lat !== null && r.lat !== '' && r.lat !== undefined).length, 0)}</div><div class="sub">จุดสแกนวันนี้ · กดเพื่อเปิดแผนที่ →</div></button>
             <div class="card stat out"><div class="k">คำร้องรอพิจารณา</div><div class="v">${d.appeals || 0}</div></div>
-            <button class="card stat map-stat" id="openSr" type="button"><div class="k">${icon('note')}ลืมสแกน รอตรวจ</div><div class="v">${d.scan_requests || 0}</div><div class="sub">คำขอบันทึกเวลาย้อนหลัง · กดเพื่อตรวจ →</div></button>
+            <button class="card stat map-stat" id="openSr" type="button"><div class="k">${icon('note')}ลืมสแกน / แก้เวลา รอตรวจ</div><div class="v">${d.scan_requests || 0}</div><div class="sub">คำขอบันทึกเวลาย้อนหลัง / แก้ไขเวลา · กดเพื่อตรวจ →</div></button>
             <button class="card stat map-stat${d.problems ? ' pb-alert' : ''}" id="openPb" type="button"><div class="k">${icon('help')}แจ้งปัญหา รอจัดการ</div><div class="v">${d.problems || 0}</div><div class="sub">ปัญหาการใช้งานจากพนักงาน · กดเพื่อจัดการ →</div></button>
           </div>
           <h2 class="section-title">การลงเวลาวันนี้</h2>
@@ -723,7 +724,7 @@
   const srTimes = (i, o) => [i && `เข้า ${esc(i)}`, o && `ออก ${esc(o)}`].filter(Boolean).join(' · ') || '–';
   function pageScanReq() {
     const c = content();
-    c.innerHTML = `<div class="page-head"><div><h1>ลืมสแกน</h1><p>คำขอบันทึกเวลาย้อนหลังจากพนักงาน · ตรวจรูปหลักฐานแล้วกดอนุมัติ (แก้เวลาได้) หรือไม่อนุมัติพร้อมเหตุผล · ผลจะแจ้งพนักงานในแอปอัตโนมัติ</p></div></div>
+    c.innerHTML = `<div class="page-head"><div><h1>ลืมสแกน / แก้ไขเวลา</h1><p>คำขอบันทึกเวลาย้อนหลัง (ลืมสแกน) และ ✏️ คำขอแก้ไขเวลาที่สแกนไว้ (ต้องมีใบลงเวลา) · ตรวจรูปหลักฐานแล้วกดอนุมัติ (แก้เวลาได้) หรือไม่อนุมัติพร้อมเหตุผล · ผู้ดูแลทุกคนอนุมัติได้ · ผลจะแจ้งพนักงานในแอปอัตโนมัติ</p></div></div>
       ${filterBar({ status: true })}<div id="tbl"><div class="empty">กำลังโหลด…</div></div>`;
     let items = [];
     const load = async () => {
@@ -748,7 +749,7 @@
             <td>${nameCell(r.employee_id, r.name, r.emp_code)}</td>
             <td>${esc(r.location || '-')}</td>
             <td class="nowrap">${esc(r.shift_name || '-')}</td>
-            <td class="nowrap t-time">${srTimes(r.req_in, r.req_out)}${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">บันทึกจริง ${srTimes(r.approved_in, r.approved_out)}</div>` : ''}</td>
+            <td class="nowrap t-time">${r.req_type === 'correct' ? `<span class="badge sr-fix">✏️ แก้ไขเวลา</span><div>${srFix(r)}</div>` : srTimes(r.req_in, r.req_out)}${r.status === 'approved' && (r.approved_in !== r.req_in || r.approved_out !== r.req_out) ? `<div class="sub">บันทึกจริง ${srTimes(r.approved_in, r.approved_out)}</div>` : ''}</td>
             <td class="nowrap">${srTimes(r.now_in, r.now_out)}</td>
             <td>${r.evidence ? `<button type="button" class="btn ghost sm" data-evi="${esc(r.evidence)}">📎 ดูรูป</button>` : attFiles('scan_request', r.id).length ? '' : '<span class="badge pending" title="พนักงานไม่ได้แนบรูปหลักฐาน">ไม่มีหลักฐาน</span>'}${attHtml('scan_request', r.id, true)}</td>
             <td>${esc(r.reason) || '<span class="muted">–</span>'}${r.review_note ? `<div class="sub"><b>ผู้ดูแล${r.reviewed_by ? ` (${esc(r.reviewed_by)})` : ''}:</b> ${esc(r.review_note)}</div>` : r.reviewed_by ? `<div class="sub">โดย ${esc(r.reviewed_by)}</div>` : ''}</td>
@@ -765,18 +766,20 @@
     bindFilter(load);
     load();
   }
+  // ขอแก้ไขเวลา: เวลาที่สแกนไว้ → เวลาที่ขอแก้
+  const srFix = (r) => [r.req_in && `เข้า ${esc(r.had_in || '–')} → <b>${esc(r.req_in)}</b>`, r.req_out && `ออก ${esc(r.had_out || '–')} → <b>${esc(r.req_out)}</b>`].filter(Boolean).join('<br>');
   const srHeader = (r) => `
     <div class="name-cell" style="margin:0 40px 10px 0">${avTag(r.employee_id, r.name, 'lg')}<div><b>${esc(r.name)}</b><div class="sub">รหัส ${esc(r.emp_code)}</div></div></div>
     <div class="del-info">วันที่ทำงาน <b>${esc(thDate(r.work_date))}</b> · ${esc(r.shift_name || '-')} · ยื่นเมื่อ ${esc(thDateTime(r.created_at))}<br>
       สถานที่ทำงาน: <b>${esc(r.location || '(ไม่ได้ระบุ)')}</b><br>
-      ขอบันทึก <b>${srTimes(r.req_in, r.req_out)}</b> น. · สแกนจริงตอนนี้ ${srTimes(r.now_in, r.now_out)}<br>
+      ${r.req_type === 'correct' ? `<span class="badge sr-fix">✏️ ขอแก้ไขเวลา</span> ${srFix(r).replace('<br>', ' · ')} น.` : `ขอบันทึก <b>${srTimes(r.req_in, r.req_out)}</b> น.`} · สแกนจริงตอนนี้ ${srTimes(r.now_in, r.now_out)}<br>
       เหตุผล: ${esc(r.reason) || '<span class="muted">(ไม่ได้ระบุ)</span>'}</div>
     ${r.evidence ? `<canvas class="detail-photo sr-photo" data-photo="${esc(r.evidence)}" data-fit="contain" data-open="${esc(r.evidence)}" title="คลิกเพื่อดูรูปใหญ่"></canvas>`
     : attFiles('scan_request', r.id).length ? '<div class="sub">พนักงานไม่ได้แนบรูป · หลักฐานที่ผู้ดูแลแนบ (คลิกเพื่อดูรูปใหญ่):</div>'
       : '<div class="no-photo">⚠ พนักงานไม่ได้แนบรูปหลักฐาน — ตรวจสอบกับหัวหน้างานหรือใบลงเวลาก่อนอนุมัติ</div>'}
     ${attHtml('scan_request', r.id)}`;
   function srApprove(r, reload) {
-    openModal(`<h2 style="margin:0 40px 10px 0">ตรวจคำขอลืมสแกน</h2>${srHeader(r)}
+    openModal(`<h2 style="margin:0 40px 10px 0">ตรวจคำขอ${r.req_type === 'correct' ? 'แก้ไขเวลา' : 'ลืมสแกน'}</h2>${srHeader(r)}
       <form id="srf" class="del-form" style="margin-top:12px">
         <div class="sr-times">
           ${r.req_in ? `<div class="field"><span class="field-label">เวลาเข้างานที่จะบันทึก</span>${time24Input('sin', r.req_in, 1)}</div>` : ''}
@@ -808,7 +811,7 @@
   }
   function srReject(r, reload) {
     const REASONS = ['ไม่มีหลักฐานยืนยันเวลา', 'เวลาไม่ตรงกับใบลงเวลา', 'รูปหลักฐานไม่ชัด กรุณาส่งใหม่', 'ไม่ได้มาทำงานวันนั้น'];
-    openModal(`<h2 style="margin:0 40px 10px 0">ไม่อนุมัติคำขอลืมสแกน</h2>${srHeader(r)}
+    openModal(`<h2 style="margin:0 40px 10px 0">ไม่อนุมัติคำขอ${r.req_type === 'correct' ? 'แก้ไขเวลา' : 'ลืมสแกน'}</h2>${srHeader(r)}
       <form id="srnf" class="del-form" style="margin-top:12px">
         <div class="reason-chips">${REASONS.map((x) => `<button type="button" class="btn ghost sm" data-r="${esc(x)}">${esc(x)}</button>`).join('')}</div>
         <label class="field"><span>เหตุผล <b class="bad">*</b> <small>พนักงานจะเห็นข้อความนี้</small></span><textarea name="note" rows="3" maxlength="300" required></textarea></label>
